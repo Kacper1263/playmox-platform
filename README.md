@@ -12,7 +12,7 @@
 ---
 
 > [!NOTE]
-> **Engineering Thesis Project Disclaimer**: Playmox was originally created and developed as an academic engineering thesis (*projekt inżynierski*). While the core features are fully functional and tested, the platform is not 100% complete or production-hardened and requires further community refinement and testing.
+> **Engineering Thesis Project Disclaimer**: Playmox was originally created and developed as an academic engineering thesis. While the core features are fully functional and tested, the platform is not 100% complete or production-hardened and requires further community refinement and testing.
 >
 > **AI-Assisted Documentation**: All technical documentation, architectural guides, and codebase specifications have been authored and organized with the assistance of AI to accelerate onboarding and facilitate future open-source development and contributions.
 
