@@ -1,0 +1,335 @@
+@page "/configuration"
+@implements IDisposable
+@using PlaymoxWeb.Models
+@inject PlaymoxApiClient ApiClient
+@inject NavigationManager Navigation
+@inject AuthStateService AuthStateService
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>@L.T(Tr.Config.PageTitle)</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">@L.T(Tr.Config.Title)</MudText>
+
+@if (!AuthStateService.IsInitialized)
+{
+    <div class="d-flex justify-center pa-10">
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    </div>
+}
+else if (!AuthStateService.IsAuthenticated)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Filled">@L.T(Tr.Common.PleaseLoginFirst)</MudAlert>
+}
+else if (AuthStateService.IsAdmin())
+{
+    <MudGrid>
+        <MudItem xs="12">
+            <MudPaper Elevation="2" Class="pa-6 border-l-4 border-solid mud-border-primary">
+                <MudText Typo="Typo.h6" GutterBottom="true">@L.T(Tr.Config.BootstrapTitle)</MudText>
+                <MudText Typo="Typo.body2" Class="mb-4">@L.T(Tr.Config.BootstrapInstructions)</MudText>
+                <div class="d-flex gap-2">
+                    <MudTextField T="string" Value="@BootstrapCommandTemplate" ReadOnly="true" Variant="Variant.Outlined" Lines="3" FullWidth="true" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ContentCopy" OnClick="CopyBootstrapCommandAsync">@L.T(Tr.Common.Copy)</MudButton>
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudCard Elevation="2">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">@L.T(Tr.Config.ConnectionTitle)</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@L.T(Tr.Config.ConnectionSubtitle)</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    @if (adminSettings == null)
+                    {
+                        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <EditForm Model="@adminSettings" OnValidSubmit="SaveAdminSettingsAsync">
+                            <MudGrid Spacing="2">
+                                <MudItem xs="12">
+                                    <MudTextField @bind-Value="adminSettings.ProxmoxUrl" Label="@L.T(Tr.Config.ProxmoxApiUrl)" Variant="Variant.Outlined" Required="true" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudTextField @bind-Value="adminSettings.ExternalAddress" Label="@L.T(Tr.Config.ExternalAddressLabel)" HelperText="@L.T(Tr.Config.ExternalAddressHelper)" Variant="Variant.Outlined" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="adminSettings.ProxmoxNode" Label="@L.T(Tr.Config.NodeNameLabel)" Variant="Variant.Outlined" Required="true" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudNumericField @bind-Value="adminSettings.TemplateVmid" Label="@L.T(Tr.Config.TemplateVmid)" Variant="Variant.Outlined" Required="true" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="adminSettings.Storage" Label="@L.T(Tr.Config.Storage)" Variant="Variant.Outlined" Required="true" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="adminSettings.Bridge" Label="@L.T(Tr.Config.Bridge)" Variant="Variant.Outlined" Required="true" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="adminSettings.ApiUser" Label="@L.T(Tr.Config.ApiUser)" Variant="Variant.Outlined" Required="true" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="adminSettings.ApiTokenId" Label="@L.T(Tr.Config.ApiTokenId)" Variant="Variant.Outlined" Required="true" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudTextField @bind-Value="adminSettings.ApiTokenSecret" Label="@L.T(Tr.Config.ApiTokenSecret)" Variant="Variant.Outlined" 
+                                                  InputType="InputType.Password" Placeholder="@L.T(Tr.Config.LeaveEmptyUnchanged)"
+                                                  HelperText="@(adminSettings.HasApiTokenSecret ? L.T(Tr.Config.CurrentlySetYes) : L.T(Tr.Config.CurrentlySetNo))" />
+                                </MudItem>
+                                <MudItem xs="12" Class="mt-4">
+                                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" 
+                                               Disabled="@savingAdminSettings" Size="Size.Large">
+                                        @if (savingAdminSettings) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                                        @L.T(Tr.Config.SaveProxmoxButton)
+                                    </MudButton>
+                                </MudItem>
+                            </MudGrid>
+                        </EditForm>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="12" md="7">
+            <MudCard Elevation="2">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">@L.T(Tr.Config.PlatformSettingsTitle)</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudAlert Severity="Severity.Info" Class="mb-4">
+                        @L.T(Tr.Config.SteamGuardAlert)
+                    </MudAlert>
+
+                    @if (platformSettings == null)
+                    {
+                        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <EditForm Model="@platformSettingsForm" OnValidSubmit="SavePlatformSettingsAsync">
+                            <MudGrid Spacing="2">
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="platformSettingsForm.SteamUsername" Label="@L.T(Tr.Config.SteamUsername)" Variant="Variant.Outlined" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="platformSettingsForm.SteamPassword" Label="@L.T(Tr.Config.SteamPassword)" Variant="Variant.Outlined" 
+                                                  InputType="InputType.Password" Placeholder="@L.T(Tr.Config.LeaveEmptyUnchanged)"
+                                                  HelperText="@(platformSettings.HasSteamPassword ? L.T(Tr.Config.CurrentlySetYes) : L.T(Tr.Config.CurrentlySetNo))" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudCheckBox @bind-Value="platformSettingsForm.ClearSteamPassword" Label="@L.T(Tr.Config.RemoveSteamPassword)" Color="Color.Primary" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="@savingPlatformSettings">
+                                        @if (savingPlatformSettings) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" /> }
+                                        @L.T(Tr.Config.SavePlatformButton)
+                                    </MudButton>
+                                </MudItem>
+                            </MudGrid>
+                        </EditForm>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" md="5">
+            <MudCard Elevation="2">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">@L.T(Tr.Config.CurrentLimitsTitle)</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    @if (myQuota == null)
+                    {
+                        <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <MudSimpleTable Hover="true" Bordered="true" Striped="true">
+                            <tbody>
+                                <tr>
+                                    <td><MudText Typo="Typo.body2"><b>@L.T(Tr.Config.CpuCoresLabel)</b></MudText></td>
+                                    <td><MudText Typo="Typo.body2">@myQuota.CpuCoresLimit</MudText></td>
+                                </tr>
+                                <tr>
+                                    <td><MudText Typo="Typo.body2"><b>@L.T(Tr.Common.RamMb)</b></MudText></td>
+                                    <td><MudText Typo="Typo.body2">@myQuota.MemoryMbLimit</MudText></td>
+                                </tr>
+                                <tr>
+                                    <td><MudText Typo="Typo.body2"><b>@L.T(Tr.Config.MaxInstancesLabel)</b></MudText></td>
+                                    <td><MudText Typo="Typo.body2">@myQuota.MaxInstancesLimit</MudText></td>
+                                </tr>
+                                <tr>
+                                    <td><MudText Typo="Typo.body2"><b>@L.T(Tr.Common.DiskGb)</b></MudText></td>
+                                    <td><MudText Typo="Typo.body2">@(myQuota.DiskGbLimit?.ToString() ?? "-")</MudText></td>
+                                </tr>
+                                <tr>
+                                    <td><MudText Typo="Typo.body2"><b>@L.T(Tr.Config.MaxPublicPortsLabel)</b></MudText></td>
+                                    <td><MudText Typo="Typo.body2">@(myQuota.MaxPublicPortsLimit?.ToString() ?? "-")</MudText></td>
+                                </tr>
+                                <tr>
+                                    <td><MudText Typo="Typo.body2"><b>@L.T(Tr.Common.PublicSsh)</b></MudText></td>
+                                    <td><MudText Typo="Typo.body2">@(myQuota.AllowSshPublicPort ? L.T(Tr.Common.Yes) : L.T(Tr.Common.No))</MudText></td>
+                                </tr>
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private const string BootstrapCommandTemplate =
+        "curl -fsSL \"<PLAYMOX_API_BASE_URL>/api/bootstrap/proxmox-script\" -o /root/bootstrap-playmox-proxmox.sh && chmod +x /root/bootstrap-playmox-proxmox.sh && /root/bootstrap-playmox-proxmox.sh";
+
+    private UserQuotaDto? myQuota;
+    private ProxmoxSettingsDto? adminSettings;
+    private UserPlatformSettingsDto? platformSettings;
+    private UpdateUserPlatformSettingsRequest platformSettingsForm = new();
+    private bool savingAdminSettings;
+    private bool savingPlatformSettings;
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.OnLanguageChanged += OnLanguageChanged;
+        await AuthStateService.InitializeAsync();
+        if (!AuthStateService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        if (!AuthStateService.IsAdmin())
+        {
+            await Task.WhenAll(LoadPlatformSettingsAsync(), LoadMyQuotaAsync());
+            return;
+        }
+
+        await LoadAdminSettingsAsync();
+    }
+
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task LoadMyQuotaAsync()
+    {
+        myQuota = await ApiClient.GetJsonAsync<UserQuotaDto>("api/users/me/quota");
+        if (myQuota == null) Snackbar.Add(L.T(Tr.Config.FailedLoadQuota), Severity.Error, config => { config.RequireInteraction = true; });
+    }
+
+    private async Task LoadPlatformSettingsAsync()
+    {
+        platformSettings = await ApiClient.GetJsonAsync<UserPlatformSettingsDto>("api/users/me/platform-settings");
+        if (platformSettings == null)
+        {
+            Snackbar.Add(L.T(Tr.Config.FailedLoadPlatform), Severity.Error, config => { config.RequireInteraction = true; });
+            return;
+        }
+
+        platformSettingsForm = new UpdateUserPlatformSettingsRequest
+        {
+            SteamUsername = platformSettings.SteamUsername
+        };
+    }
+
+    private async Task LoadAdminSettingsAsync()
+    {
+        adminSettings = await ApiClient.GetJsonAsync<ProxmoxSettingsDto>("api/admin/proxmox-settings");
+        if (adminSettings == null)
+        {
+            Snackbar.Add(L.T(Tr.Config.FailedLoadProxmox), Severity.Error, config => { config.RequireInteraction = true; });
+            return;
+        }
+
+        if (adminSettings.TemplateVmid <= 0) adminSettings.TemplateVmid = 9000;
+    }
+
+    private async Task SaveAdminSettingsAsync()
+    {
+        if (adminSettings == null) return;
+        savingAdminSettings = true;
+
+        var payload = new ProxmoxSettingsDto
+        {
+            ProxmoxUrl = adminSettings.ProxmoxUrl,
+            ProxmoxNode = adminSettings.ProxmoxNode,
+            ApiUser = adminSettings.ApiUser,
+            ApiTokenId = adminSettings.ApiTokenId,
+            ApiTokenSecret = adminSettings.ApiTokenSecret,
+            TemplateVmid = adminSettings.TemplateVmid,
+            Storage = adminSettings.Storage,
+            Bridge = adminSettings.Bridge,
+            ExternalAddress = adminSettings.ExternalAddress
+        };
+
+        var (success, updatedSettings) = await ApiClient.PutJsonAsync<ProxmoxSettingsDto, ProxmoxSettingsDto>("api/admin/proxmox-settings", payload);
+        savingAdminSettings = false;
+
+        if (!success || updatedSettings == null)
+        {
+            Snackbar.Add(L.T(Tr.Config.FailedSaveProxmox), Severity.Error);
+            return;
+        }
+
+        adminSettings = updatedSettings;
+        adminSettings.ApiTokenSecret = string.Empty;
+        Snackbar.Add(L.T(Tr.Config.ProxmoxSaved), Severity.Success);
+    }
+
+    private async Task SavePlatformSettingsAsync()
+    {
+        savingPlatformSettings = true;
+
+        var payload = new UpdateUserPlatformSettingsRequest
+        {
+            SteamUsername = platformSettingsForm.SteamUsername,
+            SteamPassword = platformSettingsForm.SteamPassword,
+            ClearSteamPassword = platformSettingsForm.ClearSteamPassword
+        };
+        var (success, response) = await ApiClient.PutJsonAsync<UpdateUserPlatformSettingsRequest, UserPlatformSettingsDto>(
+            "api/users/me/platform-settings",
+            payload);
+        savingPlatformSettings = false;
+        if (!success || response == null)
+        {
+            Snackbar.Add(L.T(Tr.Config.FailedSavePlatform), Severity.Error);
+            return;
+        }
+
+        platformSettings = response;
+        platformSettingsForm.SteamPassword = string.Empty;
+        platformSettingsForm.ClearSteamPassword = false;
+        Snackbar.Add(L.T(Tr.Config.PlatformSaved), Severity.Success);
+    }
+
+    private async Task CopyBootstrapCommandAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", BootstrapCommandTemplate);
+            Snackbar.Add(L.T(Tr.Config.CommandCopied), Severity.Info);
+        }
+        catch
+        {
+            Snackbar.Add(L.T(Tr.Config.FailedCopy), Severity.Warning);
+        }
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= OnLanguageChanged;
+    }
+}

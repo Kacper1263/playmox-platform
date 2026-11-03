@@ -1,0 +1,56 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "API", "API", "{D82C56D6-B2CD-F611-9E31-04638F7EC30E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlaymoxAPI", "API\PlaymoxAPI.csproj", "{D8E138D8-39AF-47E6-B572-B65A9BCD8259}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Frontend", "Frontend", "{CE609670-85B9-0D16-FB54-ED063D5D8A6D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlaymoxWeb", "Frontend\PlaymoxWeb\PlaymoxWeb.csproj", "{53BC8407-A0D6-476D-9533-17FB5C5B6213}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Debug|x64.Build.0 = Debug|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Debug|x86.Build.0 = Debug|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Release|x64.ActiveCfg = Release|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Release|x64.Build.0 = Release|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Release|x86.ActiveCfg = Release|Any CPU
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259}.Release|x86.Build.0 = Release|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Debug|x64.Build.0 = Debug|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Debug|x86.Build.0 = Debug|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Release|Any CPU.Build.0 = Release|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Release|x64.ActiveCfg = Release|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Release|x64.Build.0 = Release|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Release|x86.ActiveCfg = Release|Any CPU
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D8E138D8-39AF-47E6-B572-B65A9BCD8259} = {D82C56D6-B2CD-F611-9E31-04638F7EC30E}
+		{53BC8407-A0D6-476D-9533-17FB5C5B6213} = {CE609670-85B9-0D16-FB54-ED063D5D8A6D}
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,309 @@
+@page "/admin/users"
+@implements IDisposable
+@using PlaymoxWeb.Models
+@using PlaymoxWeb.Services
+@inject PlaymoxApiClient ApiClient
+@inject NavigationManager Navigation
+@inject AuthStateService AuthStateService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>@L.T(Tr.AdminUsers.PageTitle)</PageTitle>
+
+@if (!AuthStateService.IsInitialized)
+{
+    <div class="d-flex justify-center pa-10">
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    </div>
+}
+else if (!AuthStateService.IsAuthenticated || !AuthStateService.IsAdmin())
+{
+    <MudAlert Severity="Severity.Error">@L.T(Tr.AdminUsers.AdminRequired)</MudAlert>
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="12">
+            <MudText Typo="Typo.h4">@L.T(Tr.AdminUsers.Title)</MudText>
+        </MudItem>
+
+        <MudItem xs="12" lg="8">
+            <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-6">
+                <MudTabPanel Text="@L.T(Tr.AdminUsers.UserListTab)" Icon="@Icons.Material.Filled.People">
+                    <MudDataGrid Items="@users" T="UserDto" Hover="true" Striped="true" QuickFilter="@_userFilter">
+                        <ToolBarContent>
+                            <MudText Typo="Typo.h6">@L.T(Tr.Nav.Users)</MudText>
+                            <MudSpacer />
+                            <MudTextField @bind-Value="_userSearchString" Placeholder="@L.T(Tr.Common.Search)" Adornment="Adornment.Start" Immediate="true"
+                                          AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0" />
+                        </ToolBarContent>
+                        <Columns>
+                            <PropertyColumn Property="x => x.Id" Title="ID" />
+                            <TemplateColumn Title="@L.T(Tr.AdminUsers.UserColumn)">
+                                <CellTemplate>
+                                    <div class="d-flex flex-column">
+                                        <MudText Typo="Typo.body2"><b>@context.Item.Login</b></MudText>
+                                        <MudText Typo="Typo.caption">@context.Item.FirstName @context.Item.LastName</MudText>
+                                    </div>
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <TemplateColumn Title="@L.T(Tr.AdminUsers.LimitsColumn)">
+                                <CellTemplate>
+                                    @{
+                                        var quota = GetQuota(context.Item);
+                                    }
+                                    <div class="d-flex gap-2 flex-wrap align-center" style="min-width: 420px;">
+                                        <MudNumericField T="int" Value="@quota.CpuCoresLimit" Label="@L.T(Tr.Common.Cpu)" Variant="Variant.Outlined" 
+                                                         ValueChanged="@((v) => UpdateQuotaField(context.Item, nameof(UserQuotaDto.CpuCoresLimit), v))" Style="width: 60px;" />
+                                        <MudNumericField T="int" Value="@quota.MemoryMbLimit" Label="@L.T(Tr.Common.Ram)" Variant="Variant.Outlined"
+                                                         ValueChanged="@((v) => UpdateQuotaField(context.Item, nameof(UserQuotaDto.MemoryMbLimit), v))" Style="width: 80px;" />
+                                        <MudNumericField T="int?" Value="@quota.DiskGbLimit" Label="@L.T(Tr.Tutorial.DiskTitle)" Variant="Variant.Outlined"
+                                                         ValueChanged="@((v) => UpdateQuotaField(context.Item, nameof(UserQuotaDto.DiskGbLimit), v))" Style="width: 70px;" />
+                                        <MudNumericField T="int" Value="@quota.MaxInstancesLimit" Label="@L.T(Tr.AdminUsers.MaxVms)" Variant="Variant.Outlined"
+                                                         ValueChanged="@((v) => UpdateQuotaField(context.Item, nameof(UserQuotaDto.MaxInstancesLimit), v))" Style="width: 60px;" />
+                                        <MudNumericField T="int?" Value="@quota.MaxPublicPortsLimit" Label="@L.T(Tr.AdminUsers.PortsLabel)" Variant="Variant.Outlined"
+                                                         ValueChanged="@((v) => UpdateQuotaField(context.Item, nameof(UserQuotaDto.MaxPublicPortsLimit), v))" Style="width: 70px;" />
+                                        <MudCheckBox T="bool" Value="@quota.AllowSshPublicPort" Label="SSH" Dense="true"
+                                                     ValueChanged="@((v) => UpdateQuotaField(context.Item, nameof(UserQuotaDto.AllowSshPublicPort), v))" Class="mt-1" />
+                                    </div>
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <TemplateColumn Title="@L.T(Tr.Common.Actions)">
+                                <CellTemplate>
+                                    <div class="d-flex gap-1">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Save" Color="Color.Primary" Size="Size.Small" 
+                                                       OnClick="() => SaveQuotaAsync(context.Item)" 
+                                                       Disabled="@savingQuotaIds.Contains(context.Item.Id ?? -1)" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" 
+                                                       OnClick="() => DeleteUserAsync(context.Item)"
+                                                       Disabled="@deletingUserIds.Contains(context.Item.Id ?? -1)" />
+                                    </div>
+                                </CellTemplate>
+                            </TemplateColumn>
+                        </Columns>
+                    </MudDataGrid>
+                </MudTabPanel>
+
+                <MudTabPanel Text="@L.T(Tr.AdminUsers.VmStatisticsTab)" Icon="@Icons.Material.Filled.BarChart">
+                    <MudDataGrid Items="@users" T="UserDto" Hover="true" Striped="true">
+                         <Columns>
+                            <PropertyColumn Property="x => x.Login" Title="@L.T(Tr.AdminUsers.UserColumn)" />
+                            <TemplateColumn Title="@L.T(Tr.AdminUsers.ResourcesInUseColumn)">
+                                <CellTemplate>
+                                    @{
+                                        statsByUser.TryGetValue(context.Item.Id ?? 0, out var s);
+                                    }
+                                    <div class="d-flex flex-column">
+                                        <MudText Typo="Typo.caption">@L.T(Tr.Common.Cpu): @(s?.CpuTotal ?? 0)</MudText>
+                                        <MudText Typo="Typo.caption">@L.T(Tr.Common.Ram): @(s?.MemoryTotalMb ?? 0) MB</MudText>
+                                        <MudText Typo="Typo.caption">@L.T(Tr.AdminUsers.DiskInlineLabel) @(s?.DiskTotalGb ?? 0) GB</MudText>
+                                        <MudText Typo="Typo.caption">@L.T(Tr.AdminUsers.PortsInlineLabel) @(s?.PortsTotal ?? 0)</MudText>
+                                    </div>
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <TemplateColumn Title="@L.T(Tr.AdminUsers.VmStatusesColumn)">
+                                <CellTemplate>
+                                    @{
+                                        statsByUser.TryGetValue(context.Item.Id ?? 0, out var s);
+                                    }
+                                    <div class="d-flex gap-2">
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success">@(s?.Running ?? 0) @L.T(Tr.AdminUsers.ChipRunning)</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Default">@(s?.Stopped ?? 0) @L.T(Tr.AdminUsers.ChipStopped)</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Error">@(s?.Error ?? 0) @L.T(Tr.AdminUsers.ChipError)</MudChip>
+                                    </div>
+                                </CellTemplate>
+                            </TemplateColumn>
+                         </Columns>
+                    </MudDataGrid>
+                </MudTabPanel>
+            </MudTabs>
+        </MudItem>
+
+        <MudItem xs="12" lg="4">
+            <MudPaper Elevation="2" Class="pa-6">
+                <MudText Typo="Typo.h6" GutterBottom="true">@L.T(Tr.AdminUsers.AddUserTitle)</MudText>
+                <EditForm Model="@newUser" OnValidSubmit="CreateUserAsync">
+                    <MudTextField Label="@L.T(Tr.AdminUsers.FirstNameLabel)" @bind-Value="newUser.FirstName" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
+                    <MudTextField Label="@L.T(Tr.AdminUsers.LastNameLabel)" @bind-Value="newUser.LastName" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
+                    <MudTextField Label="@L.T(Tr.Login.UsernameLabel)" @bind-Value="newUser.Login" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
+                    <MudTextField Label="@L.T(Tr.Login.PasswordLabel)" @bind-Value="newUser.Password" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" Class="mb-4" />
+                    
+                    <MudText Typo="Typo.subtitle2" GutterBottom="true">@L.T(Tr.AdminUsers.InitialQuotaTitle)</MudText>
+                    <MudGrid Spacing="1">
+                        <MudItem xs="6">
+                            <MudNumericField Label="@L.T(Tr.Common.Cpu)" @bind-Value="newUserQuota.CpuCoresLimit" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudNumericField Label="@L.T(Tr.Common.RamMb)" @bind-Value="newUserQuota.MemoryMbLimit" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudNumericField Label="@L.T(Tr.Common.DiskGb)" @bind-Value="newUserQuota.DiskGbLimit" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudNumericField Label="@L.T(Tr.AdminUsers.MaxVms)" @bind-Value="newUserQuota.MaxInstancesLimit" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudNumericField Label="@L.T(Tr.AdminUsers.PortsLabel)" @bind-Value="newUserQuota.MaxPublicPortsLimit" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="6" Class="d-flex align-center">
+                            <MudSwitch @bind-Value="newUserQuota.AllowSshPublicPort" Label="@L.T(Tr.Common.PublicSsh)" Color="Color.Primary" />
+                        </MudItem>
+                    </MudGrid>
+
+                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-4" Disabled="@creatingUser">
+                        @if (creatingUser) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2"/> }
+                        @L.T(Tr.AdminUsers.CreateUserButton)
+                    </MudButton>
+                </EditForm>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private List<UserDto> users = [];
+    private UserDto newUser = new();
+    private UserQuotaDto newUserQuota = new() { CpuCoresLimit = 2, MemoryMbLimit = 4096, MaxInstancesLimit = 1, DiskGbLimit = 20, MaxPublicPortsLimit = 2, AllowSshPublicPort = true };
+    private Dictionary<long, UserQuotaDto> editableQuotas = new();
+    private HashSet<long> savingQuotaIds = new();
+    private HashSet<long> deletingUserIds = new();
+    private Dictionary<long, UserVmStats> statsByUser = new();
+    private List<InstanceListItem> allInstances = [];
+    private string _userSearchString = "";
+    private bool creatingUser;
+
+    private Func<UserDto, bool> _userFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_userSearchString)) return true;
+        if (x.Login.Contains(_userSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.FirstName.Contains(_userSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        if (x.LastName.Contains(_userSearchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.OnLanguageChanged += OnLanguageChanged;
+        await AuthStateService.InitializeAsync();
+        if (AuthStateService.IsAuthenticated && AuthStateService.IsAdmin())
+        {
+            await LoadUsersAsync();
+        }
+    }
+
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task LoadUsersAsync()
+    {
+        try
+        {
+            var usersTask = ApiClient.GetJsonAsync<List<UserDto>>("api/users");
+            var instancesTask = ApiClient.GetJsonAsync<List<InstanceListItem>>("api/instances");
+            await Task.WhenAll(usersTask, instancesTask);
+            
+            users = usersTask.Result?.Where(x => !IsAdminAccount(x)).ToList() ?? [];
+            allInstances = instancesTask.Result ?? [];
+            BuildVmStats();
+
+            editableQuotas.Clear();
+            foreach (var user in users.Where(x => x.Id.HasValue))
+            {
+                editableQuotas[user.Id!.Value] = user.UserQuota != null 
+                    ? CopyQuota(user.UserQuota) 
+                    : new UserQuotaDto { UserId = user.Id.Value, CpuCoresLimit = 2, MemoryMbLimit = 4096, MaxInstancesLimit = 1, DiskGbLimit = 20, MaxPublicPortsLimit = 2, AllowSshPublicPort = true };
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(L.T(Tr.AdminUsers.ErrorLoadingData, ex.Message), Severity.Error, config => { config.RequireInteraction = true; });
+        }
+    }
+
+    private UserQuotaDto CopyQuota(UserQuotaDto q) => new() { Id = q.Id, UserId = q.UserId, CpuCoresLimit = q.CpuCoresLimit, MemoryMbLimit = q.MemoryMbLimit, MaxInstancesLimit = q.MaxInstancesLimit, DiskGbLimit = q.DiskGbLimit, MaxPublicPortsLimit = q.MaxPublicPortsLimit, AllowSshPublicPort = q.AllowSshPublicPort };
+
+    private void BuildVmStats()
+    {
+        statsByUser.Clear();
+        var computeStatuses = new[] { "Creating", "Running", "Updating" };
+        foreach (var vm in allInstances.Where(x => !string.Equals(x.Status, "Deleted", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!statsByUser.TryGetValue(vm.OwnerId, out var stats)) { stats = new UserVmStats(); statsByUser[vm.OwnerId] = stats; }
+            stats.Total++;
+            stats.DiskTotalGb += vm.DiskGb ?? 0;
+            
+            if (computeStatuses.Contains(vm.Status, StringComparer.OrdinalIgnoreCase))
+            {
+                stats.CpuTotal += vm.CpuCores;
+                stats.MemoryTotalMb += vm.MemoryMb;
+                stats.PortsTotal += vm.GamePublicPortCount ?? 0;
+            }
+
+            if (string.Equals(vm.Status, "Running", StringComparison.OrdinalIgnoreCase)) stats.Running++;
+            else if (string.Equals(vm.Status, "Stopped", StringComparison.OrdinalIgnoreCase)) stats.Stopped++;
+            else if (string.Equals(vm.Status, "Error", StringComparison.OrdinalIgnoreCase)) stats.Error++;
+        }
+    }
+
+    private UserQuotaDto GetQuota(UserDto user) => user.Id.HasValue && editableQuotas.TryGetValue(user.Id.Value, out var q) ? q : new UserQuotaDto();
+
+    private void UpdateQuotaField(UserDto user, string field, object? val)
+    {
+        if (!user.Id.HasValue || !editableQuotas.TryGetValue(user.Id.Value, out var q)) return;
+        if (field == nameof(UserQuotaDto.CpuCoresLimit) && val is int cpu) q.CpuCoresLimit = cpu;
+        else if (field == nameof(UserQuotaDto.MemoryMbLimit) && val is int mem) q.MemoryMbLimit = mem;
+        else if (field == nameof(UserQuotaDto.MaxInstancesLimit) && val is int inst) q.MaxInstancesLimit = inst;
+        else if (field == nameof(UserQuotaDto.DiskGbLimit)) q.DiskGbLimit = val as int? ?? (val is int d ? d : null);
+        else if (field == nameof(UserQuotaDto.MaxPublicPortsLimit)) q.MaxPublicPortsLimit = val as int? ?? (val is int p ? p : null);
+        else if (field == nameof(UserQuotaDto.AllowSshPublicPort) && val is bool ssh) q.AllowSshPublicPort = ssh;
+    }
+
+    private async Task SaveQuotaAsync(UserDto user)
+    {
+        if (!user.Id.HasValue) return;
+        savingQuotaIds.Add(user.Id.Value);
+        var (success, _) = await ApiClient.PutJsonAsync<UserQuotaDto, object>($"api/users/{user.Id}/quota", GetQuota(user));
+        savingQuotaIds.Remove(user.Id.Value);
+        if (success) Snackbar.Add(L.T(Tr.AdminUsers.QuotaSaved), Severity.Success);
+    }
+
+    private async Task DeleteUserAsync(UserDto user)
+    {
+        if (!user.Id.HasValue) return;
+        if (await DialogService.ShowMessageBox(
+            L.T(Tr.AdminUsers.DeleteUserTitle),
+            L.T(Tr.AdminUsers.DeleteUserConfirm, user.Login),
+            yesText: L.T(Tr.Common.Delete),
+            cancelText: L.T(Tr.Common.Cancel),
+            options: new DialogOptions { MaxWidth = MaxWidth.Small }) == true)
+        {
+            deletingUserIds.Add(user.Id.Value);
+            var success = await ApiClient.DeleteAsync($"api/users/{user.Id}");
+            deletingUserIds.Remove(user.Id.Value);
+            if (success) { Snackbar.Add(L.T(Tr.AdminUsers.UserDeleted), Severity.Success); await LoadUsersAsync(); }
+        }
+    }
+
+    private async Task CreateUserAsync()
+    {
+        creatingUser = true;
+        newUser.UserQuota = newUserQuota;
+        var (success, _) = await ApiClient.PostJsonAsync<UserDto, UserDto>("api/users/create", newUser);
+        creatingUser = false;
+        if (success) 
+        { 
+            Snackbar.Add(L.T(Tr.AdminUsers.UserCreated), Severity.Success); 
+            newUser = new(); 
+            newUserQuota = new() { CpuCoresLimit = 2, MemoryMbLimit = 4096, MaxInstancesLimit = 1, DiskGbLimit = 20, MaxPublicPortsLimit = 2, AllowSshPublicPort = true };
+            await LoadUsersAsync(); 
+        }
+    }
+
+    private bool IsAdminAccount(UserDto user) => user.UserRoles?.Any(x => x.Role?.Name == "Admin") == true;
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= OnLanguageChanged;
+    }
+
+    private sealed class UserVmStats { public int Total, Running, Stopped, Error, CpuTotal, MemoryTotalMb, DiskTotalGb, PortsTotal; }
+}

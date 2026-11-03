@@ -1,0 +1,337 @@
+@using MudBlazor
+@using PlaymoxWeb.Models
+@using PlaymoxWeb.Services
+@implements IDisposable
+@inject DynamicConfigService ConfigService
+@inject PlaymoxApiClient ApiClient
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-3 mb-n1" />
+            @L.T(Tr.CreateVm.DialogTitle)
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <div style="max-height: 72vh; overflow-y: auto; padding-right: 4px;">
+        <MudGrid>
+            <MudItem xs="12" id="tutorial-create-header">
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_model.DisplayName" 
+                                      Label="@L.T(Tr.CreateVm.VmNameOptional)" 
+                                      Variant="Variant.Outlined" 
+                                      MaxLength="64"
+                                      id="tutorial-create-name"
+                                      Disabled="_isSubmitting" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="long" Label="@L.T(Tr.CreateVm.GameLabel)" Value="_model.GameDefinitionId" 
+                                   Variant="Variant.Outlined" 
+                                   ValueChanged="OnGameDefinitionChanged"
+                                   id="tutorial-create-game"
+                                   Disabled="_isSubmitting">
+                            @foreach (var game in GameDefinitions)
+                            {
+                                <MudSelectItem Value="@(game.Id ?? 0L)">@L.TranslateGameName(game.Key, game.DisplayName)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudNumericField @bind-Value="_model.CpuCores" Label="@L.T(Tr.Common.Cpu)" Variant="Variant.Outlined" Min="1" Required="true" id="tutorial-create-cpu" Disabled="_isSubmitting" />
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudNumericField @bind-Value="_model.MemoryMb" Label="@L.T(Tr.Common.RamMb)" Variant="Variant.Outlined" Min="256" Step="256" Required="true" id="tutorial-create-ram" Disabled="_isSubmitting" />
+                    </MudItem>
+                    <MudItem xs="4">
+                        <MudNumericField T="int?"
+                                         @bind-Value="_model.DiskGb"
+                                         Label="@L.T(Tr.Common.DiskGb)"
+                                         Variant="Variant.Outlined"
+                                         Min="1"
+                                         Required="true"
+                                         RequiredError="@L.T(Tr.CreateVm.DiskSizeRequired)"
+                                         id="tutorial-create-disk"
+                                         Disabled="_isSubmitting" />
+                    </MudItem>
+                </MudGrid>
+            </MudItem>
+            
+            <MudItem xs="12" id="tutorial-create-config">
+                <MudText Typo="Typo.subtitle2" Class="mt-4">@L.T(Tr.CreateVm.GameServerConfigSection)</MudText>
+                <MudDivider Class="mb-4" />
+                @if (_configFields.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L.T(Tr.CreateVm.NoAdditionalParams)</MudAlert>
+                }
+                else
+                {
+                    <MudGrid>
+                        @foreach (var field in _configFields)
+                        {
+                            <MudItem xs="12" md="6" Class="@(field.IsBoolean ? "d-flex flex-column justify-center" : "")">
+                                @if (field.IsBoolean)
+                                {
+                                    <MudSwitch T="bool" 
+                                               Color="Color.Primary"
+                                               Value="@GetConfigBoolValue(field.Key)" 
+                                               ValueChanged="@((v) => SetConfigBoolValue(field.Key, v))"
+                                               Label="@L.TranslateSchemaFieldTitle(field.Key, field.Title)"
+                                               Disabled="_isSubmitting" />
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-n2 ml-10">@L.TranslateSchemaFieldDescription(field.Key, field.Description)</MudText>
+                                }
+                                else if (field.Options.Count > 0)
+                                {
+                                    <MudSelect T="string" 
+                                               Label="@L.TranslateSchemaFieldTitle(field.Key, field.Title)" 
+                                               Variant="Variant.Outlined"
+                                               Value="@GetConfigTextValue(field.Key)"
+                                               ValueChanged="@((v) => SetConfigTextValue(field.Key, v))"
+                                               HelperText="@L.TranslateSchemaFieldDescription(field.Key, field.Description)"
+                                               Disabled="_isSubmitting">
+                                        @foreach (var opt in field.Options)
+                                        {
+                                            <MudSelectItem Value="@opt.Value">@opt.Label</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                }
+                                else if (field.IsInteger)
+                                {
+                                    <MudNumericField T="int"
+                                                     Label="@L.TranslateSchemaFieldTitle(field.Key, field.Title)"
+                                                     Variant="Variant.Outlined"
+                                                     Value="@(int.TryParse(GetConfigTextValue(field.Key), out var i) ? i : 0)"
+                                                     ValueChanged="@((v) => SetConfigTextValue(field.Key, v.ToString()))"
+                                                     HelperText="@L.TranslateSchemaFieldDescription(field.Key, field.Description)"
+                                                     Disabled="_isSubmitting" />
+                                }
+                                else
+                                {
+                                    <MudTextField T="string"
+                                                  Label="@L.TranslateSchemaFieldTitle(field.Key, field.Title)"
+                                                  Variant="Variant.Outlined"
+                                                  InputType="@(field.IsPassword ? InputType.Password : InputType.Text)"
+                                                  Value="@GetConfigTextValue(field.Key)"
+                                                  ValueChanged="@((v) => SetConfigTextValue(field.Key, v))"
+                                                  HelperText="@L.TranslateSchemaFieldDescription(field.Key, field.Description)"
+                                                  Disabled="_isSubmitting" />
+                                }
+                            </MudItem>
+                        }
+                    </MudGrid>
+                }
+            </MudItem>
+            <MudItem xs="12" id="tutorial-create-custom">
+                <MudText Typo="Typo.subtitle2" Class="mt-2">@L.T(Tr.Common.AdditionalParamsOptional)</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L.T(Tr.Common.AdditionalParamsHelper)</MudText>
+                @for (var i = 0; i < _customParameters.Count; i++)
+                {
+                    var index = i;
+                    var item = _customParameters[index];
+                    <MudGrid Class="mt-2" @key="item">
+                        <MudItem xs="5">
+                            <MudTextField T="string"
+                                          Label="@L.T(Tr.Common.Parameter)"
+                                          Variant="Variant.Outlined"
+                                          Value="@item.Key"
+                                          ValueChanged="@((v) => SetCustomParameterKey(index, v))"
+                                          Disabled="_isSubmitting" />
+                        </MudItem>
+                        <MudItem xs="6">
+                            <MudTextField T="string"
+                                          Label="@L.T(Tr.Common.Value)"
+                                          Variant="Variant.Outlined"
+                                          Value="@item.Value"
+                                          ValueChanged="@((v) => SetCustomParameterValue(index, v))"
+                                          Disabled="_isSubmitting" />
+                        </MudItem>
+                        <MudItem xs="1" Class="d-flex align-center justify-center">
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                           Color="Color.Error"
+                                           OnClick="@(() => RemoveCustomParameter(index))"
+                                           Disabled="_isSubmitting" />
+                        </MudItem>
+                    </MudGrid>
+                }
+                <div class="mt-2 d-flex">
+                    <MudButton Variant="Variant.Outlined"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="AddCustomParameter"
+                               Disabled="_isSubmitting">
+                        @L.T(Tr.Common.AddParameter)
+                    </MudButton>
+                </div>
+            </MudItem>
+
+            @if (SelectedGameDefinition != null)
+            {
+                <MudItem xs="12">
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Class="mt-2">
+                        <span>@L.T(Tr.CreateVm.PortsNotice, SelectedGameDefinition.RequiredPublicPorts)</span>
+                    </MudAlert>
+                </MudItem>
+            }
+        </MudGrid>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_isSubmitting">@L.T(Tr.Common.Cancel)</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="_isSubmitting" id="tutorial-create-submit">
+            @if (_isSubmitting) { <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2"/> }
+            @L.T(Tr.Instances.CreateVm)
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public List<GameDefinitionDto> GameDefinitions { get; set; } = [];
+    [Parameter] public long? TutorialGameDefinitionId { get; set; }
+
+    private CreateVmRequest _model = new();
+    private List<DynamicConfigField> _configFields = [];
+    private Dictionary<string, string> _configValues = new(StringComparer.OrdinalIgnoreCase);
+    private List<CustomParameterItem> _customParameters = [];
+    private bool _isSubmitting;
+
+    private GameDefinitionDto? SelectedGameDefinition => GameDefinitions.FirstOrDefault(x => x.Id == _model.GameDefinitionId);
+
+    protected override void OnInitialized()
+    {
+        L.OnLanguageChanged += OnLanguageChanged;
+        if (GameDefinitions.Count > 0)
+        {
+            var initialId = TutorialGameDefinitionId.HasValue && GameDefinitions.Any(x => x.Id == TutorialGameDefinitionId)
+                ? TutorialGameDefinitionId.Value
+                : GameDefinitions[0].Id ?? 0;
+            _model.GameDefinitionId = initialId;
+            InitializeForm(initialId);
+        }
+    }
+
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnGameDefinitionChanged(long id)
+    {
+        _model.GameDefinitionId = id;
+        InitializeForm(id);
+    }
+
+    private void InitializeForm(long id)
+    {
+        var definition = GameDefinitions.FirstOrDefault(x => x.Id == id);
+        _configFields = ConfigService.ParseDynamicConfigFields(definition);
+        _configValues.Clear();
+        _customParameters.Clear();
+        
+        var defaults = ConfigService.ParseConfigJsonToDictionary(ConfigService.BuildDefaultGameConfiguration(id, GameDefinitions));
+        foreach (var field in _configFields)
+        {
+            if (defaults.TryGetValue(field.Key, out var val)) _configValues[field.Key] = val;
+            else if (field.Options.Count > 0) _configValues[field.Key] = field.Options[0].Value;
+            else if (field.IsBoolean) _configValues[field.Key] = "false";
+            else _configValues[field.Key] = string.Empty;
+        }
+
+        var defaultCustom = ConfigService.ParseCustomParameters(ConfigService.BuildDefaultGameConfiguration(id, GameDefinitions));
+        foreach (var pair in defaultCustom)
+        {
+            _customParameters.Add(new CustomParameterItem { Key = pair.Key, Value = pair.Value });
+        }
+    }
+
+    private string GetConfigTextValue(string key) => _configValues.TryGetValue(key, out var v) ? v : "";
+    private bool GetConfigBoolValue(string key) => _configValues.TryGetValue(key, out var v) && bool.TryParse(v, out var b) && b;
+    private void SetConfigTextValue(string key, string v) => _configValues[key] = v;
+    private void SetConfigBoolValue(string key, bool v) => _configValues[key] = v.ToString().ToLower();
+
+    private async Task SubmitAsync()
+    {
+        if (_model.CpuCores < 1 || _model.MemoryMb < 256 || !_model.DiskGb.HasValue || _model.DiskGb.Value < 1)
+        {
+            Snackbar.Add(
+                L.T(Tr.CreateVm.ResourcesValidationError),
+                Severity.Error);
+            return;
+        }
+
+        _isSubmitting = true;
+        _model.ConfigurationJson = ConfigService.BuildConfigurationJson(_configFields, _configValues, BuildCustomParameterDictionary());
+        _model.InstanceKind = "VM";
+        _model.IdempotencyKey = Guid.NewGuid().ToString("N");
+        
+        var (success, _) = await ApiClient.PostJsonAsync<CreateVmRequest, JobAcceptedResponse>("api/instances", _model);
+        _isSubmitting = false;
+        
+        if (success)
+        {
+            Snackbar.Add(L.T(Tr.CreateVm.VmCreationQueued), Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void AddCustomParameter()
+        => _customParameters.Add(new CustomParameterItem());
+
+    private void RemoveCustomParameter(int index)
+    {
+        if (index < 0 || index >= _customParameters.Count)
+        {
+            return;
+        }
+
+        _customParameters.RemoveAt(index);
+    }
+
+    private void SetCustomParameterKey(int index, string? value)
+    {
+        if (index < 0 || index >= _customParameters.Count)
+        {
+            return;
+        }
+
+        _customParameters[index].Key = value ?? string.Empty;
+    }
+
+    private void SetCustomParameterValue(int index, string? value)
+    {
+        if (index < 0 || index >= _customParameters.Count)
+        {
+            return;
+        }
+
+        _customParameters[index].Value = value ?? string.Empty;
+    }
+
+    private Dictionary<string, string> BuildCustomParameterDictionary()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in _customParameters)
+        {
+            var key = item.Key.Trim();
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                continue;
+            }
+
+            result[key] = item.Value.Trim();
+        }
+
+        return result;
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= OnLanguageChanged;
+    }
+
+    private sealed class CustomParameterItem
+    {
+        public string Key { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+    }
+}

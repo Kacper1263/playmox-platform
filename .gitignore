@@ -1,0 +1,33 @@
+# Build results
+**/[Bb]in/
+**/[Oo]bj/
+**/[Oo]ut/
+**/publish/
+publish/
+
+# IDE & Editor directories
+.vs/
+.idea/
+.vscode/
+.codegraph/
+*.user
+*.userosscache
+*.suo
+*.sln.docstates
+*.DotSettings.user
+
+# Environment & local secrets
+.env
+.env.local
+API/appsettings.json
+API/appsettings.*.json
+!API/appsettings.json.example
+Frontend/PlaymoxWeb/wwwroot/appsettings.*.json
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# OS generated files
+.DS_Store
+Thumbs.db

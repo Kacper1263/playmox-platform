@@ -1,0 +1,41 @@
+@inject AuthStateService AuthStateService
+@implements IDisposable
+
+<MudNavMenu>
+    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">@L.T(Tr.Nav.Dashboard)</MudNavLink>
+
+    @if (!AuthStateService.IsAuthenticated)
+    {
+        <MudNavLink Href="login" Icon="@Icons.Material.Filled.Login">@L.T(Tr.Nav.LogIn)</MudNavLink>
+    }
+    else if (AuthStateService.IsAdmin())
+    {
+        <MudText Typo="Typo.caption" Class="px-4 py-2 mud-text-secondary">@L.T(Tr.Nav.AdministrationSection)</MudText>
+        <MudNavLink Href="instances" Icon="@Icons.Material.Filled.Storage">@L.T(Tr.Nav.AllServers)</MudNavLink>
+        <MudNavLink Href="admin/users" Icon="@Icons.Material.Filled.People">@L.T(Tr.Nav.Users)</MudNavLink>
+        <MudNavLink Href="configuration" Icon="@Icons.Material.Filled.Settings">@L.T(Tr.Nav.Configuration)</MudNavLink>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Class="px-4 py-2 mud-text-secondary">@L.T(Tr.Nav.GameServersSection)</MudText>
+        <MudNavLink Href="instances" Icon="@Icons.Material.Filled.Storage">@L.T(Tr.Nav.MyServers)</MudNavLink>
+        <MudNavLink Href="configuration" Icon="@Icons.Material.Filled.Settings">@L.T(Tr.Nav.Configuration)</MudNavLink>
+    }
+</MudNavMenu>
+
+@code {
+    protected override void OnInitialized()
+    {
+        AuthStateService.StateChanged += OnAuthChanged;
+        L.OnLanguageChanged += OnLanguageChanged;
+    }
+
+    private void OnAuthChanged() => InvokeAsync(StateHasChanged);
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        AuthStateService.StateChanged -= OnAuthChanged;
+        L.OnLanguageChanged -= OnLanguageChanged;
+    }
+}

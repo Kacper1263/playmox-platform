@@ -1,0 +1,54 @@
+services:
+  playmox-db:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: playmox-db
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "${MSSQL_PID}"
+      MSSQL_SA_PASSWORD: "${DB_SA_PASSWORD}"
+    ports:
+      - "${DB_HOST_PORT}:1433"
+    volumes:
+      - playmox-mssql-data:/var/opt/mssql
+
+  playmox-api:
+    build:
+      context: ./API
+      dockerfile: Dockerfile
+    container_name: playmox-api
+    restart: unless-stopped
+    depends_on:
+      - playmox-db
+    env_file:
+      - .env
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ConnectionStrings__DefaultConnection: "Server=playmox-db,1433;Database=${DB_NAME};User Id=${DB_SA_USER};Password=${DB_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True;"
+      Bootstrap__Admin__Login: "${BOOTSTRAP_ADMIN_LOGIN}"
+      Bootstrap__Admin__Password: "${BOOTSTRAP_ADMIN_PASSWORD}"
+      Bootstrap__Admin__FirstName: "${BOOTSTRAP_ADMIN_FIRST_NAME}"
+      Bootstrap__Admin__LastName: "${BOOTSTRAP_ADMIN_LAST_NAME}"
+      Security__PasswordSalt: "${PASSWORD_SALT}"
+      Security__AppSecret: "${APP_SECRET}"
+      Security__Swagger__Username: "${SWAGGER_USER}"
+      Security__Swagger__Password: "${SWAGGER_PASSWORD}"
+      Proxmox__AllowSelfSignedCertificates: "${PROXMOX_ALLOW_SELF_SIGNED_CERTIFICATES:-true}"
+    ports:
+      - "${API_HOST_PORT}:8080"
+
+  playmox-frontend:
+    build:
+      context: ./Frontend/PlaymoxWeb
+      dockerfile: Dockerfile
+    container_name: playmox-frontend
+    restart: unless-stopped
+    depends_on:
+      - playmox-api
+    environment:
+      API_BASE_URL: "${FRONTEND_API_BASE_URL}"
+    ports:
+      - "${FRONTEND_HOST_PORT}:80"
+
+volumes:
+  playmox-mssql-data:

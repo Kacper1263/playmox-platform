@@ -1,0 +1,193 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject AuthStateService AuthStateService
+@inject ThemeService ThemeService
+@inject TutorialService TutorialService
+
+<MudThemeProvider @ref="@_mudThemeProvider" Theme="_theme" @bind-IsDarkMode="@ThemeService.IsDarkMode" />
+<MudDialogProvider FullWidth="true" MaxWidth="MaxWidth.ExtraLarge" CloseButton="true" BackdropClick="true" NoHeader="false" Position="DialogPosition.Center" />
+<MudSnackbarProvider />
+<MudPopoverProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+        <MudText Typo="Typo.h5" Class="ml-3">Playmox</MudText>
+        <MudSpacer />
+        
+        @if (AuthStateService.IsAuthenticated)
+        {
+            <MudHidden Breakpoint="Breakpoint.SmAndDown">
+                <MudText Typo="Typo.body2" Class="mr-4">
+                    @AuthStateService.CurrentUser?.FirstName @AuthStateService.CurrentUser?.LastName (@AuthStateService.CurrentUser?.Login)
+                </MudText>
+            </MudHidden>
+        }
+
+        <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true" Class="mr-2">
+            <ActivatorContent>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Inherit"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Language"
+                           EndIcon="@Icons.Material.Filled.ArrowDropDown">
+                    @L.CurrentLanguage.ToUpperInvariant()
+                </MudButton>
+            </ActivatorContent>
+            <ChildContent>
+                @foreach (var lang in LocalizationService.SupportedLanguages)
+                {
+                    <MudMenuItem OnClick="() => SelectLanguage(lang.Code)">
+                        <div class="d-flex align-center justify-space-between" style="min-width: 120px;">
+                            <MudText Typo="Typo.body2">@lang.Name (@lang.Code.ToUpperInvariant())</MudText>
+                            @if (L.CurrentLanguage == lang.Code)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Color="Color.Primary" Class="ml-3" />
+                            }
+                        </div>
+                    </MudMenuItem>
+                }
+            </ChildContent>
+        </MudMenu>
+
+        <MudTooltip Text="@L.T(Tr.Nav.ToggleTheme)">
+            <MudIconButton Icon="@(ThemeService.IsDarkMode ? Icons.Material.Filled.Brightness4 : Icons.Material.Filled.Brightness5)" 
+                           Color="Color.Inherit" 
+                           OnClick="@ToggleTheme" />
+        </MudTooltip>
+        
+        @if (AuthStateService.IsAuthenticated)
+        {
+            if (!AuthStateService.IsAdmin())
+            {
+                <MudTooltip Text="@L.T(Tr.Nav.Tutorial)">
+                    <MudIconButton Icon="@Icons.Material.Filled.School" Color="Color.Inherit" OnClick="OpenTutorial" />
+                </MudTooltip>
+            }
+            <MudTooltip Text="@L.T(Tr.Nav.LogOut)">
+                <MudIconButton Icon="@Icons.Material.Filled.Logout" Color="Color.Inherit" OnClick="Logout" />
+            </MudTooltip>
+        }
+        else
+        {
+            <MudTooltip Text="@L.T(Tr.Nav.LogIn)">
+                <MudIconButton Icon="@Icons.Material.Filled.Login" Color="Color.Inherit" OnClick='() => Navigation.NavigateTo("/login")' />
+            </MudTooltip>
+        }
+    </MudAppBar>
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <MudDrawerHeader>
+            <MudText Typo="Typo.h6">@L.T(Tr.Nav.ControlPanel)</MudText>
+        </MudDrawerHeader>
+        <NavMenu />
+    </MudDrawer>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private bool _drawerOpen = true;
+    private MudThemeProvider? _mudThemeProvider;
+
+    private readonly MudTheme _theme = new MudTheme()
+    {
+        PaletteLight = new PaletteLight()
+        {
+            Primary = "#3f51b5",
+            AppbarBackground = "#3f51b5",
+        },
+        PaletteDark = new PaletteDark()
+        {
+            Primary = "#7986cb",
+            Surface = "#1e1e2d",
+            Background = "#1a1a27",
+            AppbarBackground = "#1a1a27",
+            DrawerBackground = "#1e1e2d",
+            DrawerText = "rgba(255,255,255, 0.7)",
+            DrawerIcon = "rgba(255,255,255, 0.7)",
+            TableStriped = "rgba(255,255,255, 0.03)",
+            TextPrimary = "rgba(255,255,255, 0.87)",
+            TextSecondary = "rgba(255,255,255, 0.60)"
+        }
+    };
+
+    protected override void OnInitialized()
+    {
+        AuthStateService.StateChanged += OnAuthChanged;
+        ThemeService.OnThemeChanged += StateHasChanged;
+        L.OnLanguageChanged += StateHasChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await AuthStateService.InitializeAsync();
+            await ThemeService.InitializeAsync();
+            await L.InitializeAsync();
+            StateHasChanged();
+        }
+    }
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private async Task ToggleTheme()
+    {
+        await ThemeService.ToggleThemeAsync();
+    }
+
+    private async Task ToggleLanguage()
+    {
+        await L.ToggleLanguageAsync();
+    }
+
+    private async Task SelectLanguage(string code)
+    {
+        await L.SetLanguageAsync(code);
+    }
+
+    private void OpenTutorial()
+    {
+        TutorialService.RequestInstancesTutorial();
+
+        var currentPath = new Uri(Navigation.Uri).AbsolutePath;
+        if (!string.Equals(currentPath, "/instances", StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo("/instances");
+        }
+    }
+
+    private void OnAuthChanged()
+    {
+        if (AuthStateService.IsInitialized && !AuthStateService.IsAuthenticated)
+        {
+            var currentPath = new Uri(Navigation.Uri).AbsolutePath;
+            if (!string.Equals(currentPath, "/login", StringComparison.OrdinalIgnoreCase))
+            {
+                Navigation.NavigateTo("/login");
+            }
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Logout()
+    {
+        await AuthStateService.LogoutAsync();
+        Navigation.NavigateTo("/login");
+    }
+
+    public void Dispose()
+    {
+        AuthStateService.StateChanged -= OnAuthChanged;
+        ThemeService.OnThemeChanged -= StateHasChanged;
+        L.OnLanguageChanged -= StateHasChanged;
+    }
+}

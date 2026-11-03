@@ -1,0 +1,261 @@
+@page "/"
+@implements IDisposable
+@using PlaymoxWeb.Models
+@using PlaymoxWeb.Services
+@inject NavigationManager Navigation
+@inject AuthStateService AuthStateService
+@inject PlaymoxApiClient ApiClient
+@inject ISnackbar Snackbar
+
+<PageTitle>@L.T(Tr.Home.PageTitle)</PageTitle>
+
+@if (!AuthStateService.IsInitialized)
+{
+    <div class="d-flex justify-center pa-10">
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    </div>
+}
+else if (!AuthStateService.IsAuthenticated)
+{
+    <MudContainer MaxWidth="MaxWidth.Small" Class="mt-16 text-center">
+        <MudIcon Icon="@Icons.Material.Filled.SportsEsports" Size="Size.Large" Color="Color.Primary" Class="mb-4" />
+        <MudText Typo="Typo.h3" GutterBottom="true">@L.T(Tr.Home.WelcomeTitle)</MudText>
+        <MudText Typo="Typo.body1" Class="mb-8 mud-text-secondary">@L.T(Tr.Home.AnonymousPrompt)</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick='() => Navigation.NavigateTo("/login")'>@L.T(Tr.Nav.LogIn)</MudButton>
+    </MudContainer>
+}
+else if (AuthStateService.IsAdmin())
+{
+    <MudGrid>
+        <MudItem xs="12" Class="d-flex align-center justify-space-between">
+            <MudText Typo="Typo.h4">@L.T(Tr.Home.AdminDashboardTitle)</MudText>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshDashboardAsync" Disabled="isRefreshing">
+                @(isRefreshing ? L.T(Tr.Home.Refreshing) : L.T(Tr.Home.RefreshData))
+            </MudButton>
+        </MudItem>
+
+        @if (adminDashboard == null)
+        {
+            <MudItem xs="12">
+                <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+            </MudItem>
+        }
+        else
+        {
+            <MudItem xs="12">
+                <MudAlert Severity="@(adminDashboard.IsConnected ? Severity.Success : Severity.Warning)" Variant="Variant.Filled" Elevation="2">
+                    @adminDashboard.Message
+                </MudAlert>
+            </MudItem>
+
+            <MudItem xs="12" md="6" lg="3">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2" Class="mud-text-secondary">@L.T(Tr.Home.ProxmoxHost)</MudText>
+                        <MudText Typo="Typo.h5">@(adminDashboard.ProxmoxNode ?? "-")</MudText>
+                        <MudText Typo="Typo.caption">@adminDashboard.ProxmoxVersion</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" md="6" lg="3">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2" Class="mud-text-secondary">@L.T(Tr.Home.CpuUsage)</MudText>
+                        <MudText Typo="Typo.h5">@(adminDashboard.CpuUsagePercent?.ToString("0.##") ?? "-")%</MudText>
+                        <MudProgressLinear Color="Color.Primary" Value="@(adminDashboard.CpuUsagePercent ?? 0)" Class="mt-3" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" md="6" lg="3">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2" Class="mud-text-secondary">@L.T(Tr.Home.Instances)</MudText>
+                        <MudText Typo="Typo.h5">@adminDashboard.VmCount VM / @adminDashboard.CtCount CT</MudText>
+                        <MudText Typo="Typo.caption">@L.T(Tr.Home.TemplatesLabel) @adminDashboard.TemplateCount</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" md="6" lg="3">
+                <MudCard Elevation="2">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2" Class="mud-text-secondary">@L.T(Tr.Home.ApiStatus)</MudText>
+                        <MudText Typo="Typo.h5">@(adminDashboard.IsConnected ? L.T(Tr.Home.Connected) : L.T(Tr.Common.Error))</MudText>
+                        <MudText Typo="Typo.caption" Class="text-truncate d-block">@adminDashboard.ProxmoxUrl</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudPaper Elevation="2" Class="pa-4">
+                    <MudText Typo="Typo.h6" GutterBottom="true">@L.T(Tr.Home.HostRamMemory)</MudText>
+                    <div class="d-flex justify-space-between mb-2">
+                        <MudText Typo="Typo.body2">@FormatBytes(adminDashboard.MemoryUsedBytes) / @FormatBytes(adminDashboard.MemoryTotalBytes)</MudText>
+                        <MudText Typo="Typo.body2">@(adminDashboard.MemoryTotalBytes > 0 ? (adminDashboard.MemoryUsedBytes * 100 / adminDashboard.MemoryTotalBytes)?.ToString("0") : "0")%</MudText>
+                    </div>
+                    <MudProgressLinear Color="Color.Info" Value="@(adminDashboard.MemoryTotalBytes > 0 ? (double)(adminDashboard.MemoryUsedBytes * 100 / adminDashboard.MemoryTotalBytes) : 0)" Size="Size.Large" />
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudPaper Elevation="2" Class="pa-4">
+                    <MudText Typo="Typo.h6" GutterBottom="true">@L.T(Tr.Home.HostRootfsDisk)</MudText>
+                    <div class="d-flex justify-space-between mb-2">
+                        <MudText Typo="Typo.body2">@FormatBytes(adminDashboard.RootFsUsedBytes) / @FormatBytes(adminDashboard.RootFsTotalBytes)</MudText>
+                        <MudText Typo="Typo.body2">@(adminDashboard.RootFsTotalBytes > 0 ? (adminDashboard.RootFsUsedBytes * 100 / adminDashboard.RootFsTotalBytes)?.ToString("0") : "0")%</MudText>
+                    </div>
+                    <MudProgressLinear Color="Color.Warning" Value="@(adminDashboard.RootFsTotalBytes > 0 ? (double)(adminDashboard.RootFsUsedBytes * 100 / adminDashboard.RootFsTotalBytes) : 0)" Size="Size.Large" />
+                </MudPaper>
+            </MudItem>
+
+            @if (adminDashboard.Storages?.Count > 0)
+            {
+                <MudItem xs="12">
+                    <MudText Typo="Typo.h6" Class="mt-4 mb-2">@L.T(Tr.Home.StorageResources)</MudText>
+                    <MudDataGrid Items="@adminDashboard.Storages" T="AdminProxmoxStorageDto" Elevation="2" Striped="true">
+                        <Columns>
+                            <PropertyColumn Property="x => x.Name" Title="@L.T(Tr.Home.StorageName)" />
+                            <PropertyColumn Property="x => x.Type" Title="@L.T(Tr.Home.StorageType)" />
+                            <TemplateColumn Title="@L.T(Tr.Common.Status)">
+                                <CellTemplate>
+                                    <MudChip T="string" Color="@(context.Item.Active ? Color.Success : Color.Error)" Size="Size.Small">
+                                        @(context.Item.Active ? L.T(Tr.Home.StorageActive) : L.T(Tr.Home.StorageInactive))
+                                    </MudChip>
+                                </CellTemplate>
+                            </TemplateColumn>
+                            <TemplateColumn Title="@L.T(Tr.Home.StorageUsage)">
+                                <CellTemplate>
+                                    <div class="d-flex align-center">
+                                        <MudText Typo="Typo.body2" Class="mr-4">@FormatBytes(context.Item.UsedBytes) / @FormatBytes(context.Item.TotalBytes)</MudText>
+                                        <div style="flex-grow: 1">
+                                            <MudProgressLinear Color="Color.Primary" Value="@(context.Item.TotalBytes > 0 ? (double)(context.Item.UsedBytes * 100 / context.Item.TotalBytes) : 0)" />
+                                        </div>
+                                    </div>
+                                </CellTemplate>
+                            </TemplateColumn>
+                        </Columns>
+                    </MudDataGrid>
+                </MudItem>
+            }
+        }
+    </MudGrid>
+}
+else
+{
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="mt-8">
+        <MudAlert Severity="Severity.Success" Variant="Variant.Filled" Elevation="2" Class="mb-6">
+            @L.T(Tr.Home.UserLoggedInBanner)
+        </MudAlert>
+        <MudGrid>
+            <MudItem xs="12" md="6" lg="4">
+                <MudCard Elevation="2" Class="pa-4 clickable-card h-100" @onclick='() => Navigation.NavigateTo("/instances")'>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="4">
+                        <MudIcon Icon="@Icons.Material.Filled.Storage" Size="Size.Large" Color="Color.Primary" />
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.h6">@L.T(Tr.Nav.MyServers)</MudText>
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">@L.T(Tr.Home.ManageInstancesDesc)</MudText>
+                        </MudStack>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" md="6" lg="4">
+                <MudCard Elevation="2" Class="pa-4 clickable-card h-100" @onclick='() => Navigation.NavigateTo("/configuration")'>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="4">
+                        <MudIcon Icon="@Icons.Material.Filled.Settings" Size="Size.Large" Color="Color.Primary" />
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.h6">@L.T(Tr.Home.SettingsTitle)</MudText>
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">@L.T(Tr.Home.SettingsDesc)</MudText>
+                        </MudStack>
+                    </MudStack>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+    </MudContainer>
+}
+
+<style>
+    .clickable-card {
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+    .clickable-card:hover {
+        transform: translateY(-4px);
+    }
+</style>
+
+@code {
+    private AdminProxmoxDashboardDto? adminDashboard;
+    private bool isRefreshing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateService.StateChanged += OnAuthChanged;
+        L.OnLanguageChanged += OnLanguageChanged;
+        await AuthStateService.InitializeAsync();
+        if (AuthStateService.IsAuthenticated && AuthStateService.IsAdmin())
+        {
+            await LoadAdminDashboardAsync();
+        }
+    }
+
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnAuthChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            if (AuthStateService.IsAuthenticated && AuthStateService.IsAdmin())
+            {
+                await LoadAdminDashboardAsync();
+            }
+            else
+            {
+                adminDashboard = null;
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private async Task LoadAdminDashboardAsync()
+    {
+        adminDashboard = await ApiClient.GetJsonAsync<AdminProxmoxDashboardDto>("api/admin/proxmox-dashboard");
+    }
+
+    private async Task RefreshDashboardAsync()
+    {
+        if (isRefreshing) return;
+        isRefreshing = true;
+        try
+        {
+            await LoadAdminDashboardAsync();
+            Snackbar.Add(L.T(Tr.Home.DashboardRefreshed), Severity.Info);
+        }
+        finally
+        {
+            isRefreshing = false;
+        }
+    }
+
+    private static string FormatBytes(long? bytes)
+    {
+        if (!bytes.HasValue || bytes.Value <= 0) return "0 B";
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var value = (double)bytes.Value;
+        var unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.Length - 1)
+        {
+            value /= 1024;
+            unitIndex++;
+        }
+        return $"{value:0.##} {units[unitIndex]}";
+    }
+
+    public void Dispose()
+    {
+        AuthStateService.StateChanged -= OnAuthChanged;
+        L.OnLanguageChanged -= OnLanguageChanged;
+    }
+}

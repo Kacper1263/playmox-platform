@@ -1,0 +1,279 @@
+@using MudBlazor
+@using PlaymoxWeb.Models
+@using PlaymoxWeb.Services
+@implements IDisposable
+@inject DynamicConfigService ConfigService
+@inject PlaymoxApiClient ApiClient
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-3 mb-n1" />
+            @L.T(Tr.GameConfig.DialogTitle, Instance.VmId)
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <div style="max-height: 72vh; overflow-y: auto; padding-right: 4px;">
+        @if (_isLoading)
+        {
+            <div class="d-flex justify-center pa-8">
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+            </div>
+        }
+        else
+        {
+            <MudGrid>
+                @if (!string.IsNullOrWhiteSpace(_gameConfigSource))
+                {
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@L.T(Tr.GameConfig.SourceLabel) @_gameConfigSource</MudText>
+                    </MudItem>
+                }
+                
+                @if (_configFields.Count == 0)
+                {
+                    <MudItem xs="12">
+                        <MudAlert Severity="Severity.Info">@L.T(Tr.GameConfig.NoDynamicParams)</MudAlert>
+                    </MudItem>
+                }
+                else
+                {
+                    @foreach (var field in _configFields)
+                    {
+                        <MudItem xs="12" md="6">
+                            @if (field.IsBoolean)
+                            {
+                                <MudSwitch T="bool" 
+                                           Color="Color.Primary"
+                                           Value="@GetConfigBoolValue(field.Key)" 
+                                           ValueChanged="@((v) => SetConfigBoolValue(field.Key, v))"
+                                           Label="@L.TranslateSchemaFieldTitle(field.Key, field.Title)" />
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-n2 ml-10">@L.TranslateSchemaFieldDescription(field.Key, field.Description)</MudText>
+                            }
+                            else if (field.Options.Count > 0)
+                            {
+                                <MudSelect T="string" 
+                                           Label="@L.TranslateSchemaFieldTitle(field.Key, field.Title)" 
+                                           Variant="Variant.Outlined"
+                                           Value="@GetConfigTextValue(field.Key)"
+                                           ValueChanged="@((v) => SetConfigTextValue(field.Key, v))"
+                                           HelperText="@L.TranslateSchemaFieldDescription(field.Key, field.Description)">
+                                    @foreach (var opt in field.Options)
+                                    {
+                                        <MudSelectItem Value="@opt.Value">@opt.Label</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            }
+                            else if (field.IsInteger)
+                            {
+                                <MudNumericField T="int"
+                                                 Label="@L.TranslateSchemaFieldTitle(field.Key, field.Title)"
+                                                 Variant="Variant.Outlined"
+                                                 Value="@(int.TryParse(GetConfigTextValue(field.Key), out var i) ? i : 0)"
+                                                 ValueChanged="@((v) => SetConfigTextValue(field.Key, v.ToString()))"
+                                                 HelperText="@L.TranslateSchemaFieldDescription(field.Key, field.Description)" />
+                            }
+                            else
+                            {
+                                <MudTextField T="string"
+                                              Label="@L.TranslateSchemaFieldTitle(field.Key, field.Title)"
+                                              Variant="Variant.Outlined"
+                                              InputType="@(field.IsPassword ? InputType.Password : InputType.Text)"
+                                              Value="@GetConfigTextValue(field.Key)"
+                                              ValueChanged="@((v) => SetConfigTextValue(field.Key, v))"
+                                              HelperText="@L.TranslateSchemaFieldDescription(field.Key, field.Description)" />
+                            }
+                        </MudItem>
+                    }
+                }
+
+                <MudItem xs="12">
+                    <MudText Typo="Typo.subtitle2" Class="mt-2">@L.T(Tr.Common.AdditionalParamsOptional)</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@L.T(Tr.Common.AdditionalParamsHelper)</MudText>
+                    @for (var i = 0; i < _customParameters.Count; i++)
+                    {
+                        var index = i;
+                        var item = _customParameters[index];
+                        <MudGrid Class="mt-2" @key="item">
+                            <MudItem xs="5">
+                                <MudTextField T="string"
+                                              Label="@L.T(Tr.Common.Parameter)"
+                                              Variant="Variant.Outlined"
+                                              Value="@item.Key"
+                                              ValueChanged="@((v) => SetCustomParameterKey(index, v))"
+                                              Disabled="_isLoading" />
+                            </MudItem>
+                            <MudItem xs="6">
+                                <MudTextField T="string"
+                                              Label="@L.T(Tr.Common.Value)"
+                                              Variant="Variant.Outlined"
+                                              Value="@item.Value"
+                                              ValueChanged="@((v) => SetCustomParameterValue(index, v))"
+                                              Disabled="_isLoading" />
+                            </MudItem>
+                            <MudItem xs="1" Class="d-flex align-center justify-center">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Color="Color.Error"
+                                               OnClick="@(() => RemoveCustomParameter(index))"
+                                               Disabled="_isLoading" />
+                            </MudItem>
+                        </MudGrid>
+                    }
+                    <div class="mt-2 d-flex">
+                        <MudButton Variant="Variant.Outlined"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Add"
+                                   OnClick="AddCustomParameter"
+                                   Disabled="_isLoading">
+                            @L.T(Tr.Common.AddParameter)
+                        </MudButton>
+                    </div>
+                </MudItem>
+            </MudGrid>
+        }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="RefreshFromServerAsync" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_isLoading">@L.T(Tr.GameConfig.RefreshFromServer)</MudButton>
+        <MudSpacer />
+        <MudButton OnClick="Cancel">@L.T(Tr.Common.Cancel)</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_isLoading">@L.T(Tr.GameConfig.SaveAndRestart)</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public InstanceListItem Instance { get; set; } = default!;
+    [Parameter] public GameDefinitionDto? GameDefinition { get; set; }
+
+    private List<DynamicConfigField> _configFields = [];
+    private Dictionary<string, string> _configValues = new(StringComparer.OrdinalIgnoreCase);
+    private List<CustomParameterItem> _customParameters = [];
+    private string _gameConfigSource = string.Empty;
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.OnLanguageChanged += OnLanguageChanged;
+        await LoadConfigAsync(false);
+    }
+
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task RefreshFromServerAsync()
+    {
+        await LoadConfigAsync(true);
+        Snackbar.Add(L.T(Tr.GameConfig.RefreshedFromServer), Severity.Info);
+    }
+
+    private async Task LoadConfigAsync(bool refreshFromServer)
+    {
+        _isLoading = true;
+        try
+        {
+            var snapshot = await ApiClient.GetJsonAsync<GameServerConfigurationSnapshot>(
+                $"api/instances/{Instance.Id}/game/config?refresh={refreshFromServer.ToString().ToLowerInvariant()}");
+            
+            if (snapshot == null) return;
+
+            _configFields = ConfigService.ParseDynamicConfigFields(GameDefinition);
+            _configValues.Clear();
+            _customParameters.Clear();
+
+            var defaults = ConfigService.ParseConfigJsonToDictionary(ConfigService.BuildDefaultGameConfiguration(Instance.GameDefinitionId, GameDefinition != null ? new List<GameDefinitionDto> { GameDefinition } : []));
+            foreach (var field in _configFields)
+            {
+                if (defaults.TryGetValue(field.Key, out var val)) _configValues[field.Key] = val;
+            }
+
+            foreach (var pair in ConfigService.ParseConfigJsonToDictionary(snapshot.ConfigurationJson))
+            {
+                _configValues[pair.Key] = pair.Value;
+            }
+            foreach (var pair in ConfigService.ParseCustomParameters(snapshot.ConfigurationJson))
+            {
+                _customParameters.Add(new CustomParameterItem { Key = pair.Key, Value = pair.Value });
+            }
+            _gameConfigSource = snapshot.Source;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private string GetConfigTextValue(string key) => _configValues.TryGetValue(key, out var v) ? v : "";
+    private bool GetConfigBoolValue(string key) => _configValues.TryGetValue(key, out var v) && bool.TryParse(v, out var b) && b;
+    private void SetConfigTextValue(string key, string v) => _configValues[key] = v;
+    private void SetConfigBoolValue(string key, bool v) => _configValues[key] = v.ToString().ToLower();
+
+    private void Submit()
+    {
+        var json = ConfigService.BuildConfigurationJson(_configFields, _configValues, BuildCustomParameterDictionary());
+        MudDialog.Close(DialogResult.Ok(json));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void AddCustomParameter()
+        => _customParameters.Add(new CustomParameterItem());
+
+    private void RemoveCustomParameter(int index)
+    {
+        if (index < 0 || index >= _customParameters.Count)
+        {
+            return;
+        }
+
+        _customParameters.RemoveAt(index);
+    }
+
+    private void SetCustomParameterKey(int index, string? value)
+    {
+        if (index < 0 || index >= _customParameters.Count)
+        {
+            return;
+        }
+
+        _customParameters[index].Key = value ?? string.Empty;
+    }
+
+    private void SetCustomParameterValue(int index, string? value)
+    {
+        if (index < 0 || index >= _customParameters.Count)
+        {
+            return;
+        }
+
+        _customParameters[index].Value = value ?? string.Empty;
+    }
+
+    private Dictionary<string, string> BuildCustomParameterDictionary()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in _customParameters)
+        {
+            var key = item.Key.Trim();
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                continue;
+            }
+
+            result[key] = item.Value.Trim();
+        }
+
+        return result;
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= OnLanguageChanged;
+    }
+
+    private sealed class CustomParameterItem
+    {
+        public string Key { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+    }
+}

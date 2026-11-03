@@ -1,0 +1,17 @@
+@using MudBlazor
+
+<MudTooltip RootClass="d-inline-flex align-center ml-1">
+    <TooltipContent>
+        <div style="max-width: 300px; white-space: normal; text-align: left;">
+            @Text
+        </div>
+    </TooltipContent>
+    <ChildContent>
+        <MudIcon Icon="@Icons.Material.Outlined.HelpOutline" Size="Size.Small" Color="Color.Default" Style="cursor: help;" />
+    </ChildContent>
+</MudTooltip>
+
+@code {
+    [Parameter]
+    public string Text { get; set; } = string.Empty;
+}

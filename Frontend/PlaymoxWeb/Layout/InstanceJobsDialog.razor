@@ -1,0 +1,72 @@
+@using MudBlazor
+@using PlaymoxWeb.Models
+@implements IDisposable
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@L.T(Tr.Jobs.DialogTitle, InstanceId)</MudText>
+    </TitleContent>
+    <DialogContent>
+        <div style="max-height: 65vh; overflow-y: auto;">
+        <MudTable Items="Jobs" Hover="true" Dense="true" Elevation="0">
+            <HeaderContent>
+                <MudTh>ID</MudTh>
+                <MudTh>@L.T(Tr.Jobs.OperationColumn)</MudTh>
+                <MudTh>@L.T(Tr.Common.Status)</MudTh>
+                <MudTh>@L.T(Tr.Jobs.DateColumn)</MudTh>
+                <MudTh>@L.T(Tr.Common.Error)</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="ID">#@context.Id</MudTd>
+                <MudTd DataLabel="@L.T(Tr.Jobs.OperationColumn)">@L.TranslateOperationLabel(context.Operation, context.OperationLabel)</MudTd>
+                <MudTd DataLabel="@L.T(Tr.Common.Status)">
+                    <MudChip T="string" Size="Size.Small" Color="@GetJobStatusColor(context.Status)">@L.TranslateStatusLabel(context.Status, context.StatusLabel)</MudChip>
+                </MudTd>
+                <MudTd DataLabel="@L.T(Tr.Jobs.DateColumn)">@context.StartedDateUtc?.ToLocalTime().ToString("g")</MudTd>
+                <MudTd DataLabel="@L.T(Tr.Common.Error)">
+                    @if (!string.IsNullOrEmpty(context.ErrorMessage))
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Error">@context.ErrorMessage</MudText>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.caption">-</MudText>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="Close">@L.T(Tr.Common.Close)</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public List<ProvisioningJobStatusItem> Jobs { get; set; } = [];
+    [Parameter] public long InstanceId { get; set; }
+
+    protected override void OnInitialized()
+    {
+        L.OnLanguageChanged += OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    private Color GetJobStatusColor(string status) => status.ToLower() switch
+    {
+        "succeeded" => Color.Success,
+        "failed" => Color.Error,
+        "running" => Color.Info,
+        "queued" => Color.Warning,
+        _ => Color.Default
+    };
+
+    private void Close() => MudDialog.Close();
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= OnLanguageChanged;
+    }
+}

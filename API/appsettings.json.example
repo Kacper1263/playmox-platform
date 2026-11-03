@@ -1,0 +1,38 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "Cors": {
+    "AllowedOrigins": [
+      "http://localhost:5000",
+      "https://localhost:5001",
+      "http://localhost:8081"
+    ]
+  },
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost,1433;Database=Playmox;User Id=sa;Password=ChangeMe_UseStrongPassword123!;Encrypt=True;TrustServerCertificate=True;"
+  },
+  "Bootstrap": {
+    "Admin": {
+      "Login": "admin",
+      "Password": "ChangeMe_AdminPassword123!",
+      "FirstName": "Playmox",
+      "LastName": "Admin"
+    }
+  },
+  "Security": {
+    "PasswordSalt": "ChangeMe_VeryLongRandomSalt",
+    "AppSecret": "ChangeMe_VeryLongRandomAppSecret_AtLeast32Chars",
+    "Swagger": {
+      "Username": "ChangeMe_SwaggerUser",
+      "Password": "ChangeMe_SwaggerPassword"
+    }
+  },
+  "Proxmox": {
+    "AllowSelfSignedCertificates": true
+  }
+}

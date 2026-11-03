@@ -1,0 +1,1724 @@
+@page "/instances"
+@implements IDisposable
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@using PlaymoxWeb.Models
+@using PlaymoxWeb.Services
+@using PlaymoxWeb.Extensions
+@inject NavigationManager Navigation
+@inject AuthStateService AuthStateService
+@inject PlaymoxApiClient ApiClient
+@inject IJSRuntime JsRuntime
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject TutorialService TutorialService
+
+<PageTitle>@(AuthStateService.IsAdmin() ? L.T(Tr.Instances.PageTitleAdmin) : L.T(Tr.Instances.PageTitleUser))</PageTitle>
+
+@if (!AuthStateService.IsInitialized || isLoading)
+{
+    <div class="d-flex justify-center align-center" style="height: 400px;">
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+    </div>
+}
+else if (!AuthStateService.IsAuthenticated)
+{
+    <MudAlert Severity="Severity.Warning">@L.T(Tr.Common.PleaseLoginFirst)</MudAlert>
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="12" Class="d-flex align-center justify-space-between">
+            <MudText Typo="Typo.h4" id="tutorial-instances-title">
+                @(AuthStateService.IsAdmin() && !isTutorialActive ? L.T(Tr.Nav.AllServers) : L.T(Tr.Nav.MyServers))
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateVmDialog" id="tutorial-create-btn" Disabled="@isTutorialActive">
+                @L.T(Tr.Instances.CreateVm)
+            </MudButton>
+        </MudItem>
+
+        @if (AuthStateService.IsAdmin() && !isTutorialActive)
+        {
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-cpu">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Instances.HostCpuCores)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipHostCpu)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@DisplayUsedCpu / @(adminDashboard?.CpuCores?.ToString() ?? "—")</MudText>
+                        <MudProgressLinear Color="GetQuotaColor(DisplayUsedCpu, adminDashboard?.CpuCores ?? 32)" Value="@DisplayUsedCpu" Max="@(adminDashboard?.CpuCores ?? 32)" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-ram">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Instances.HostRam)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipHostRam)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@FormatBytes(adminDashboard?.MemoryUsedBytes) / @FormatBytes(adminDashboard?.MemoryTotalBytes)</MudText>
+                        <MudProgressLinear Color="Color.Info" Value="@(adminDashboard?.MemoryTotalBytes > 0 ? (double)(adminDashboard.MemoryUsedBytes * 100 / adminDashboard.MemoryTotalBytes) : 0)" Max="100" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-instances">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Instances.TotalVms)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipTotalVms)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@DisplayActiveInstancesCount VMs</MudText>
+                        <MudProgressLinear Color="Color.Primary" Value="100" Max="100" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-disk">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Instances.HostDisk)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipHostDisk)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@FormatBytes(adminDashboard?.RootFsUsedBytes) / @FormatBytes(adminDashboard?.RootFsTotalBytes)</MudText>
+                        <MudProgressLinear Color="Color.Warning" Value="@(adminDashboard?.RootFsTotalBytes > 0 ? (double)(adminDashboard.RootFsUsedBytes * 100 / adminDashboard.RootFsTotalBytes) : 0)" Max="100" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-ports">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Instances.PublicPorts)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipHostPorts)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@DisplayUsedPublicPorts @L.T(Tr.Instances.ActivePortsSuffix)</MudText>
+                        <MudProgressLinear Color="Color.Success" Value="@DisplayUsedPublicPorts" Max="@(Math.Max(DisplayUsedPublicPorts, 10))" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+        else if (DisplayQuota is { } quota)
+        {
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-cpu">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Instances.QuotaCpuCores)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipUserCpu)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@DisplayUsedCpu / @quota.CpuCoresLimit</MudText>
+                        <MudProgressLinear Color="GetQuotaColor(DisplayUsedCpu, quota.CpuCoresLimit)" Value="@DisplayUsedCpu" Max="@quota.CpuCoresLimit" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-ram">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Common.Ram)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipUserRam)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@DisplayUsedMemoryMb / @quota.MemoryMbLimit MB</MudText>
+                        <MudProgressLinear Color="GetQuotaColor(DisplayUsedMemoryMb, quota.MemoryMbLimit)" Value="@DisplayUsedMemoryMb" Max="@quota.MemoryMbLimit" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-instances">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Home.Instances)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipUserInstances)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@DisplayActiveInstancesCount / @quota.MaxInstancesLimit</MudText>
+                        <MudProgressLinear Color="GetQuotaColor(DisplayActiveInstancesCount, quota.MaxInstancesLimit)" Value="@DisplayActiveInstancesCount" Max="@quota.MaxInstancesLimit" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-disk">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Common.DiskGb)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipUserDisk)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@DisplayUsedDiskGb / @(quota.DiskGbLimit ?? 0) GB</MudText>
+                        <MudProgressLinear Color="GetQuotaColor(DisplayUsedDiskGb, quota.DiskGbLimit ?? 100)" Value="@DisplayUsedDiskGb" Max="@(quota.DiskGbLimit ?? 100)" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="2">
+                <MudCard Elevation="2" id="tutorial-quota-ports">
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2">
+                            @L.T(Tr.Instances.PublicPorts)
+                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipUserPorts)" />
+                        </MudText>
+                        <MudText Typo="Typo.h5">@DisplayUsedPublicPorts / @(quota.MaxPublicPortsLimit ?? 0)</MudText>
+                        <MudProgressLinear Color="GetQuotaColor(DisplayUsedPublicPorts, quota.MaxPublicPortsLimit ?? 10)" Value="@DisplayUsedPublicPorts" Max="@(quota.MaxPublicPortsLimit ?? 10)" Class="mt-2" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+
+        <MudItem xs="12">
+            <MudDataGrid Items="@DisplayInstances" T="InstanceListItem" Hover="true" Bordered="false" Striped="true" Elevation="2" Class="instances-grid"
+                        id="tutorial-vm-grid"
+                        QuickFilter="@_quickFilter" Filterable="true" SortMode="SortMode.Multiple"
+                        FilterCaseSensitivity="DataGridFilterCaseSensitivity.CaseInsensitive">
+                <ToolBarContent>
+                    <MudText Typo="Typo.h6">@L.T(Tr.Instances.MachineList)</MudText>
+                    <MudSpacer />
+                    <MudTextField @bind-Value="_searchString" Placeholder="@L.T(Tr.Common.Search)" Adornment="Adornment.Start" Immediate="true"
+                                  AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"
+                                  id="tutorial-search" Disabled="@isTutorialActive"></MudTextField>
+                    
+                    <MudCheckBox @bind-Value="showAccessPasswords" Label="@L.T(Tr.Instances.ShowPasswords)" Color="Color.Primary" Disabled="@isTutorialActive" />
+                    <MudCheckBox @bind-Value="showDeletedInstances" Label="@L.T(Tr.Instances.ShowDeleted)" Color="Color.Primary" Dense="true" Class="ml-4" Disabled="@isTutorialActive" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstancesOnlyAsync" Disabled="@isTutorialActive" />
+                </ToolBarContent>
+                <Columns>
+                    <PropertyColumn Property="x => x.VmId" Title="VMID" HeaderStyle="width: 70px; min-width: 65px;" Filterable="false" />
+                    @if (AuthStateService.IsAdmin())
+                    {
+                        <PropertyColumn Property="x => x.OwnerLogin" Title="@L.T(Tr.Instances.Owner)" HeaderStyle="width: 95px; min-width: 90px;">
+                            <CellTemplate>
+                                <MudText Typo="Typo.body2">@(string.IsNullOrWhiteSpace(context.Item.OwnerLogin) ? $"#{context.Item.OwnerId}" : context.Item.OwnerLogin)</MudText>
+                            </CellTemplate>
+                        </PropertyColumn>
+                    }
+                    <PropertyColumn Property='x => (x.VmDisplayName ?? "") + " " + x.GameDisplayName' Title="@L.T(Tr.Instances.GameAndName)" SortBy="x => x.VmDisplayName ?? x.GameDisplayName">
+                        <CellTemplate>
+                            <div class="d-flex flex-column" style="word-break: break-word;">
+                                <MudText Typo="Typo.body2"><b>@(context.Item.VmDisplayName ?? L.TranslateGameName(null, context.Item.GameDisplayName))</b></MudText>
+                                @if (!string.IsNullOrEmpty(context.Item.VmDisplayName))
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@L.TranslateGameName(null, context.Item.GameDisplayName)</MudText>
+                                }
+                            </div>
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <PropertyColumn Property="x => x.Status" Title="@L.T(Tr.Common.Status)" HeaderStyle="width: 135px; min-width: 125px;">
+                        <CellTemplate>
+                            <div class="d-flex flex-column">
+                                <div class="d-flex align-center">
+                                    <MudIcon Icon="@GetStatusIcon(context.Item.Status)" Color="@GetStatusColor(context.Item.Status)" Size="Size.Small" Class="mr-1" />
+                                    <MudText Typo="Typo.body2" Class="text-nowrap">@L.TranslateStatusLabel(context.Item.Status, context.Item.StatusLabel)</MudText>
+                                    @if (context.Item.HasPendingJob)
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="ml-1" />
+                                    }
+                                </div>
+                            </div>
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <PropertyColumn Property="x => x.CpuCores" Title="@L.T(Tr.Common.Cpu)" HeaderStyle="width: 65px; min-width: 60px;" />
+                    <PropertyColumn Property="x => x.MemoryMb" Title="@L.T(Tr.Common.Ram)" HeaderStyle="width: 75px; min-width: 70px;" />
+                    <PropertyColumn Property="x => x.DiskGb" Title="@L.T(Tr.Common.DiskGb)" HeaderStyle="width: 90px; min-width: 80px;" />
+                    <TemplateColumn Title="@L.T(Tr.Instances.AccessDetails)" HeaderStyle="width: 220px; min-width: 210px;">
+                        <CellTemplate>
+                            <div class="d-flex flex-column" @attributes="GetTutorialAttributes(context.Item, TutorialAccessId)">
+                                @if (!string.IsNullOrEmpty(context.Item.PublicHost))
+                                {
+                                    <MudText Typo="Typo.caption"><b>@L.T(Tr.Instances.HostLabel):</b> @context.Item.PublicHost</MudText>
+                                    @if (context.Item.GamePublicPortStart.HasValue)
+                                    {
+                                        <MudText Typo="Typo.caption">
+                                            <b>@L.T(Tr.Instances.GamePortLabel)</b> @context.Item.GamePublicPortStart
+                                            @if (context.Item.GamePublicPortCount > 1)
+                                            {
+                                                <span>-@(context.Item.GamePublicPortStart + context.Item.GamePublicPortCount - 1)</span>
+                                            }
+                                            @if (!string.IsNullOrEmpty(context.Item.GamePublicPortProtocol))
+                                            {
+                                                <span class="mud-text-secondary ml-1">(@context.Item.GamePublicPortProtocol)</span>
+                                            }
+                                        </MudText>
+                                    }
+                                    @if (context.Item.SshPublicPort.HasValue)
+                                    {
+                                        <MudText Typo="Typo.caption">
+                                            <b>SSH:</b> @context.Item.AccessUsername : @(showAccessPasswords ? context.Item.AccessPassword : "••••••••")
+                                            <HelpTooltip Text="@L.T(Tr.Instances.TooltipSshAccess)" />
+                                        </MudText>
+                                        <MudText Typo="Typo.caption"><b>@L.T(Tr.Instances.SshPortLabel):</b> @context.Item.SshPublicPort </MudText>
+                                    }
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@L.T(Tr.Instances.NoLoginCredentials)</MudText>
+                                }
+
+                                <div class="mt-2">
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info" 
+                                               OnClick="() => RefreshRuntimeInfoAsync(context.Item.Id)"
+                                               Disabled="@(refreshingRuntimeIds.Contains(context.Item.Id) || isTutorialActive)">
+                                        @if (refreshingRuntimeIds.Contains(context.Item.Id))
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                                        }
+                                        else
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Sync" Size="Size.Small" Class="mr-2" />
+                                        }
+                                        @L.T(Tr.Instances.GameStatusButton)
+                                    </MudButton>
+                                </div>
+                                @if (runtimeInfos.TryGetValue(context.Item.Id, out var ri))
+                                {
+                                    <div class="mt-2 mud-text-secondary" style="font-size: 0.75rem; line-height: 1.2;">
+                                        <div><b>@L.T(Tr.Instances.RuntimeStatusLabel)</b> @(ri.IsRunning ? L.T(Tr.Status.Running) : L.T(Tr.Status.Stopped)) <br/> @L.TranslateRuntimeMessage(ri.Message)</div>
+                                        @if (ri.IsGamePortListening == true)
+                                        {
+                                            <div><b>Port @ri.GamePort:</b> @L.T(Tr.Instances.PortListening)</div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(ri.DetectedServerVersion))
+                                        {
+                                            <div><b>@L.T(Tr.Instances.VersionLabel)</b> @ri.DetectedServerVersion</div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(ri.JavaVersion))
+                                        {
+                                            <div><b>Java:</b> @ri.JavaVersion</div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(ri.DirectConnectCode))
+                                        {
+                                            <div><b>Direct Connect:</b> @ri.DirectConnectCode</div>
+                                        }
+                                        @if (ri.OnlinePlayers.HasValue)
+                                        {
+                                            <div><b>@L.T(Tr.Instances.PlayersLabel)</b> @ri.OnlinePlayers / @ri.MaxPlayers</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="@L.T(Tr.Instances.LastAction)" HeaderStyle="width: 120px; min-width: 110px;">
+                        <CellTemplate>
+                            @if (context.Item.LastJobId.HasValue)
+                            {
+                                <div class="d-flex flex-column">
+                                    <MudText Typo="Typo.caption">#@context.Item.LastJobId (@L.TranslateStatusLabel(context.Item.LastJobStatus, context.Item.LastJobStatusLabel))</MudText>
+                                    <MudLink Typo="Typo.caption" OnClick="() => LoadJobsForInstanceAsync(context.Item.Id)">@L.T(Tr.Instances.HistoryLink)</MudLink>
+                                </div>
+                            }
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="@L.T(Tr.Common.Actions)" HeaderStyle="width: 180px; min-width: 175px;" Sortable="false" Filterable="false">
+                        <CellTemplate>
+                            <div class="d-flex align-center flex-nowrap"
+                                 @attributes="GetTutorialAttributes(context.Item, TutorialActionsId)"
+                                 @onmouseenter="(_) => PauseAutoRefreshForActionsMenu()"
+                                 @onfocusin="(_) => PauseAutoRefreshForActionsMenu()"
+                                 @onpointerdown="(_) => PauseAutoRefreshForActionsMenu()">
+                                @if (loadingInstanceIds.Contains(context.Item.Id))
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mx-2" />
+                                }
+                                else
+                                {
+                                    <MudTooltip Text="@L.T(Tr.Instances.ActionStart)">
+                                        <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Success" Size="Size.Small" Class="pa-1"
+                                                       OnClick='() => EnqueueLifecycleAsync(context.Item.Id, "start")' 
+                                                       Disabled="@(isTutorialActive || isSubmitting || context.Item.HasPendingJob)" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="@L.T(Tr.Instances.ActionRestart)">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Primary" Size="Size.Small" Class="pa-1"
+                                                       OnClick='() => EnqueueLifecycleAsync(context.Item.Id, "restart")' 
+                                                       Disabled="@(isTutorialActive || isSubmitting || context.Item.HasPendingJob)" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="@L.T(Tr.Instances.ActionShutdown)">
+                                        <MudIconButton Icon="@Icons.Material.Filled.PowerSettingsNew" Color="Color.Warning" Size="Size.Small" Class="pa-1"
+                                                       OnClick='() => EnqueueLifecycleAsync(context.Item.Id, "shutdown")' 
+                                                       Disabled="@(isTutorialActive || isSubmitting || context.Item.HasPendingJob)" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="@L.T(Tr.Instances.ActionForceStop)">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Stop" Color="Color.Error" Size="Size.Small" Class="pa-1"
+                                                       OnClick="() => ForceStopInstanceAsync(context.Item)" 
+                                                       Disabled="@(isTutorialActive || isSubmitting)" />
+                                    </MudTooltip>
+                                    
+                                    <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                             Size="Size.Small"
+                                             Class="pa-1"
+                                             Dense="true"
+                                             AnchorOrigin="Origin.BottomRight"
+                                             TransformOrigin="Origin.TopRight"
+                                             OpenChanged="(isOpen) => OnActionsMenuOpenChanged(context.Item.Id, isOpen)"
+                                             Disabled="@isTutorialActive"
+                                             @attributes="GetTutorialAttributes(context.Item, TutorialActionsMenuId)">
+                                        <MudMenuItem Icon="@Icons.Material.Filled.Settings" OnClick="() => OpenGameConfigDialog(context.Item)">@L.T(Tr.Instances.MenuGameConfig)</MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.Terminal" OnClick="() => OpenSshPreviewAsync(context.Item.Id, myQuota?.AllowSshPublicPort == true || AuthStateService.IsAdmin())">@L.T(Tr.Instances.MenuConsoleDebug)</MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.Backup" OnClick="() => DownloadGameBackupAsync(context.Item.Id)">@L.T(Tr.Instances.MenuDownloadBackup)</MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.CloudUpload" OnClick="() => OpenRestoreFilePickerAsync(context.Item.Id)">@L.T(Tr.Instances.MenuRestoreBackup)</MudMenuItem>
+                                        <MudDivider />
+                                        <MudMenuItem Icon="@Icons.Material.Filled.Edit" OnClick="() => BeginEditResources(context.Item)">@L.T(Tr.Instances.MenuEditResources)</MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.AutoFixHigh" OnClick="() => ReinstallGameAsync(context.Item.Id)">@L.T(Tr.Instances.MenuReinstallGame)</MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.Password" OnClick="() => OpenResetPasswordDialog(context.Item.Id)">@L.T(Tr.Instances.MenuResetSshPassword)</MudMenuItem>
+                                        <MudDivider />
+                                        <MudMenuItem Icon="@Icons.Material.Filled.Delete" IconColor="Color.Error" OnClick="() => DeleteVmAsync(context.Item.Id)">@L.T(Tr.Instances.MenuDeleteVm)</MudMenuItem>
+                                    </MudMenu>
+                                }
+                            </div>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="InstanceListItem" />
+                </PagerContent>
+            </MudDataGrid>
+        </MudItem>
+    </MudGrid>
+
+    @* Hidden file inputs for restore *@
+    @foreach(var instance in instances)
+    {
+        <InputFile id="@($"restore-file-{instance.Id}")" style="display:none" OnChange="(e) => RestoreGameBackupAsync(instance.Id, e)" />
+    }
+}
+
+@* SSH Debug Dialog *@
+<MudDialog @bind-Visible="_sshPreviewOpen" Options="_sshDialogOptions">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@L.T(Tr.Instances.DebuggingVmTitle, sshPreviewInstanceId)</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+            <MudTabPanel Text="@L.T(Tr.Instances.TabApiCommandStream)" Icon="@Icons.Material.Filled.CastConnected">
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">@apiCommandStreamMessage</MudAlert>
+                <div id="api-command-console" class="ssh-preview-console">@apiCommandStreamOutput</div>
+                <MudCheckBox @bind-Value="apiStreamAutoScroll" Label="@L.T(Tr.Instances.AutoScroll)" Dense="true" />
+            </MudTabPanel>
+            <MudTabPanel Text="@L.T(Tr.Instances.TabSshTerminal)" Icon="@Icons.Material.Filled.Terminal" Disabled="!sshTerminalEnabled">
+                @if (sshTerminalEnabled)
+                {
+                    <MudAlert Severity="@sshPreviewSeverity" Dense="true" Class="mb-2">@sshPreviewMessage</MudAlert>
+                    <div id="ssh-terminal-console" class="ssh-preview-console">@sshPreviewOutput</div>
+                    <input type="text" placeholder="@L.T(Tr.Instances.TerminalInputPlaceholder)" 
+                           class="mt-2 pa-3 w-100" 
+                           style="color: var(--mud-palette-text-primary); border: 1px solid var(--mud-palette-lines-default); border-radius: var(--mud-default-borderradius); background: transparent; outline: none;"
+                           @onkeydown="OnTerminalKeyDown" 
+                           @onkeydown:preventDefault="true" />
+                    <MudCheckBox @bind-Value="sshAutoScroll" Label="@L.T(Tr.Instances.AutoScroll)" Dense="true" />
+                }
+            </MudTabPanel>
+        </MudTabs>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="CloseSshPreview">@L.T(Tr.Common.Close)</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* Edit Resources Dialog *@
+<MudDialog @bind-Visible="_editResourcesOpen">
+    <TitleContent>
+        <MudText Typo="Typo.h6">@L.T(Tr.Instances.EditResourcesTitle, _editingVm?.VmId)</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudGrid>
+            <MudItem xs="12">
+                <MudTextField @bind-Value="editDisplayName" Label="@L.T(Tr.Instances.DisplayName)" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="4">
+                <MudNumericField @bind-Value="editCpuCores" Label="@L.T(Tr.Common.Cpu)" Variant="Variant.Outlined" Min="1" />
+            </MudItem>
+            <MudItem xs="4">
+                <MudNumericField @bind-Value="editMemoryMb" Label="@L.T(Tr.Common.RamMb)" Variant="Variant.Outlined" Min="256" Step="256" />
+            </MudItem>
+            <MudItem xs="4">
+                <MudNumericField @bind-Value="editDiskGb" Label="@L.T(Tr.Common.DiskGb)" Variant="Variant.Outlined" Min="1" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudAlert Severity="Severity.Warning">@L.T(Tr.Instances.EditResourcesRestartNote)</MudAlert>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => _editResourcesOpen = false">@L.T(Tr.Common.Cancel)</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="() => SaveResourcesAsync(_editingVm!.Id)">@L.T(Tr.Common.Save)</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@if (isTutorialActive && tutorialSteps.Count > 0)
+{
+    <div class="tutorial-overlay">
+        <div class="tutorial-highlight" style="@tutorialHighlightStyle"></div>
+        <MudPaper Elevation="8" Class="tutorial-tooltip pa-4" Style="@tutorialTooltipStyle">
+            <MudText Typo="Typo.subtitle1" Class="mb-1">@CurrentTutorialStep.Title</MudText>
+            <MudText Typo="Typo.body2">@((MarkupString)CurrentTutorialStep.Body)</MudText>
+            <MudProgressLinear Value="@TutorialProgress" Class="mt-3" />
+            <div class="d-flex align-center justify-space-between mt-3">
+                <MudButton Variant="Variant.Text" Color="Color.Inherit" OnClick="EndTutorial">@L.T(Tr.Common.Skip)</MudButton>
+                <div class="d-flex align-center">
+                    <MudButton Variant="Variant.Text" Disabled="tutorialStepIndex == 0" OnClick="PreviousTutorialStep">@L.T(Tr.Common.Back)</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="NextTutorialStep">
+                        @(tutorialStepIndex == tutorialSteps.Count - 1 ? L.T(Tr.Common.Finish) : L.T(Tr.Common.Next))
+                    </MudButton>
+                </div>
+            </div>
+        </MudPaper>
+    </div>
+}
+
+<style>
+    .instances-grid {
+        width: 100% !important;
+        overflow: hidden !important;
+    }
+
+    .instances-grid .mud-table-container {
+        max-height: none !important;
+        overflow-y: visible !important;
+        overflow-x: auto !important;
+    }
+
+    .instances-grid table {
+        width: 100% !important;
+        min-width: 100% !important;
+        table-layout: auto !important;
+    }
+
+    .instances-grid th, .instances-grid td {
+        padding: 6px 6px !important;
+    }
+
+    .ssh-preview-console {
+        background: #0b0f19;
+        color: #c7f0d8;
+        border-radius: 4px;
+        padding: 12px;
+        min-height: 400px;
+        max-height: 500px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    private List<InstanceListItem> instances = [];
+    private List<GameDefinitionDto> gameDefinitions = [];
+    private UserQuotaDto? myQuota;
+    private AdminProxmoxDashboardDto? adminDashboard;
+    private bool isLoading = true;
+    private bool isSubmitting;
+    private string _searchString = "";
+    private bool showAccessPasswords;
+    private bool showDeletedInstances;
+    private Dictionary<long, VmGameRuntimeInfo> runtimeInfos = new();
+    private HashSet<long> loadingInstanceIds = new();
+    private HashSet<long> refreshingRuntimeIds = new();
+    private CancellationTokenSource? autoRefreshCts;
+    private DateTime _autoRefreshPausedUntilUtc = DateTime.MinValue;
+    private HashSet<long> _openActionsMenuInstanceIds = [];
+    private bool isTutorialActive;
+    private List<InstanceListItem> tutorialInstances = [];
+    private UserQuotaDto? tutorialQuota;
+    private int tutorialUsedCpu;
+    private int tutorialUsedMemoryMb;
+    private int tutorialUsedDiskGb;
+    private int tutorialUsedPublicPorts;
+    private int tutorialActiveInstancesCount;
+    private DotNetObjectReference<Instances>? tutorialDotNetRef;
+    private IDialogReference? tutorialCreateDialog;
+    private long? tutorialPrimaryInstanceId;
+    private List<TutorialStep> tutorialSteps = [];
+    private int tutorialStepIndex;
+    private string tutorialHighlightStyle = "display:none;";
+    private string tutorialTooltipStyle = string.Empty;
+    private CancellationTokenSource? tutorialLayoutCts;
+    private static readonly IReadOnlyDictionary<string, object> EmptyAttributes = new Dictionary<string, object>();
+    private const string TutorialAccessId = "tutorial-access";
+    private const string TutorialActionsId = "tutorial-actions";
+    private const string TutorialActionsMenuId = "tutorial-actions-menu";
+
+    // Edit state
+    private bool _editResourcesOpen;
+    private InstanceListItem? _editingVm;
+    private int editCpuCores;
+    private int editMemoryMb;
+    private int? editDiskGb;
+    private string? editDisplayName;
+
+    // SSH Preview state
+    private bool _sshPreviewOpen;
+    private long? sshPreviewInstanceId;
+    private string rawSshOutput = string.Empty;
+    private string sshPreviewOutput = string.Empty;
+    private string sshPreviewMessage = string.Empty;
+    private Severity sshPreviewSeverity = Severity.Info;
+    private string sshCrBuffer = string.Empty;
+    private bool sshTerminalEnabled;
+    private string apiCommandStreamOutput = string.Empty;
+    private string apiCommandStreamMessage = string.Empty;
+    private CancellationTokenSource? apiCommandStreamCts;
+    private bool apiStreamAutoScroll = true;
+    private bool sshAutoScroll = true;
+    private DotNetObjectReference<Instances>? sshDotNetRef;
+    private DialogOptions _sshDialogOptions = new() { FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = true };
+
+    private int usedCpu;
+    private int usedMemoryMb;
+    private int usedDiskGb;
+    private int usedPublicPorts;
+    private int activeInstancesCount;
+
+    private Func<InstanceListItem, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString)) return true;
+        if (x.VmDisplayName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.GameDisplayName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.OwnerLogin?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true) return true;
+        if (x.VmId.ToString().Contains(_searchString)) return true;
+        if (x.Status.Contains(_searchString, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    };
+
+    private UserQuotaDto? DisplayQuota => isTutorialActive ? tutorialQuota : myQuota;
+    private int DisplayUsedCpu => isTutorialActive ? tutorialUsedCpu : usedCpu;
+    private int DisplayUsedMemoryMb => isTutorialActive ? tutorialUsedMemoryMb : usedMemoryMb;
+    private int DisplayUsedDiskGb => isTutorialActive ? tutorialUsedDiskGb : usedDiskGb;
+    private int DisplayUsedPublicPorts => isTutorialActive ? tutorialUsedPublicPorts : usedPublicPorts;
+    private int DisplayActiveInstancesCount => isTutorialActive ? tutorialActiveInstancesCount : activeInstancesCount;
+    private IEnumerable<InstanceListItem> EffectiveInstances => isTutorialActive ? tutorialInstances : instances;
+    private IEnumerable<InstanceListItem> DisplayInstances => showDeletedInstances
+        ? EffectiveInstances
+        : EffectiveInstances.Where(x => !string.Equals(x.Status, "Deleted", StringComparison.OrdinalIgnoreCase));
+    private TutorialStep CurrentTutorialStep => tutorialSteps[Math.Clamp(tutorialStepIndex, 0, tutorialSteps.Count - 1)];
+    private double TutorialProgress => tutorialSteps.Count == 0 ? 0 : (tutorialStepIndex + 1) * 100.0 / tutorialSteps.Count;
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.OnLanguageChanged += OnLanguageChanged;
+        TutorialService.InstancesTutorialRequested += OnInstancesTutorialRequested;
+        apiCommandStreamMessage = L.T(Tr.Instances.PortListeningPending);
+        await AuthStateService.InitializeAsync();
+        if (!AuthStateService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        await LoadDataAsync();
+        
+        autoRefreshCts = new CancellationTokenSource();
+        _ = AutoRefreshLoop(autoRefreshCts.Token);
+    }
+
+    private void OnLanguageChanged()
+    {
+        if (isTutorialActive)
+        {
+            InitializeTutorialSteps(forceRebuild: true);
+        }
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && TutorialService.ConsumePendingInstancesTutorial())
+        {
+            await StartInstancesTutorialAsync();
+        }
+    }
+
+    private async Task AutoRefreshLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(10), ct);
+                if (!ct.IsCancellationRequested && !ShouldPauseAutoRefresh())
+                {
+                    await RefreshInstancesOnlyAsync();
+                }
+            }
+            catch (TaskCanceledException) { }
+        }
+    }
+
+    private bool ShouldPauseAutoRefresh()
+        => DateTime.UtcNow < _autoRefreshPausedUntilUtc ||
+           _openActionsMenuInstanceIds.Count > 0 ||
+           isTutorialActive ||
+           _editResourcesOpen ||
+           _sshPreviewOpen ||
+           isSubmitting ||
+            loadingInstanceIds.Count > 0;
+
+    private void PauseAutoRefreshForActionsMenu()
+        => _autoRefreshPausedUntilUtc = DateTime.UtcNow.AddSeconds(20);
+
+    private void OnActionsMenuOpenChanged(long instanceId, bool isOpen)
+    {
+        if (isOpen)
+        {
+            _openActionsMenuInstanceIds.Add(instanceId);
+            PauseAutoRefreshForActionsMenu();
+            return;
+        }
+
+        _openActionsMenuInstanceIds.Remove(instanceId);
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var quotaTask = ApiClient.GetJsonAsync<UserQuotaDto>("api/users/me/quota");
+            var gamesTask = ApiClient.GetJsonAsync<List<GameDefinitionDto>>("api/game-definitions");
+            var instancesTask = ApiClient.GetJsonAsync<List<InstanceListItem>>("api/instances");
+            Task<AdminProxmoxDashboardDto?>? adminTask = null;
+            if (AuthStateService.IsAdmin())
+            {
+                adminTask = ApiClient.GetJsonAsync<AdminProxmoxDashboardDto>("api/admin/proxmox-dashboard");
+            }
+
+            if (adminTask != null)
+            {
+                await Task.WhenAll(quotaTask, gamesTask, instancesTask, adminTask);
+                adminDashboard = adminTask.Result;
+            }
+            else
+            {
+                await Task.WhenAll(quotaTask, gamesTask, instancesTask);
+            }
+
+            myQuota = quotaTask.Result;
+            gameDefinitions = gamesTask.Result ?? [];
+            instances = instancesTask.Result ?? [];
+            RecalculateUsage();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async void OnInstancesTutorialRequested()
+    {
+        await InvokeAsync(StartInstancesTutorialAsync);
+    }
+
+    private async Task StartInstancesTutorialAsync()
+    {
+        if (isTutorialActive)
+        {
+            return;
+        }
+
+        for (var i = 0; i < 40 && isLoading; i++)
+        {
+            await Task.Delay(50);
+        }
+
+        if (isLoading)
+        {
+            return;
+        }
+
+        EnsureTutorialData();
+        InitializeTutorialSteps(forceRebuild: true);
+        isTutorialActive = true;
+        tutorialStepIndex = 0;
+        _autoRefreshPausedUntilUtc = DateTime.UtcNow.AddMinutes(10);
+
+        tutorialDotNetRef?.Dispose();
+        tutorialDotNetRef = DotNetObjectReference.Create(this);
+        await JsRuntime.InvokeVoidAsync("playmoxTutorial.start", tutorialDotNetRef);
+        await ApplyTutorialStepAsync();
+    }
+
+    [JSInvokable]
+    public async Task OnTutorialViewportChanged()
+    {
+        if (!isTutorialActive)
+        {
+            return;
+        }
+
+        await UpdateTutorialLayoutAsync(scrollIntoView: false);
+    }
+
+    private async Task ApplyTutorialStepAsync()
+    {
+        tutorialLayoutCts?.Cancel();
+        tutorialLayoutCts = new CancellationTokenSource();
+        await UpdateTutorialLayoutAsync(scrollIntoView: true);
+    }
+
+    private async Task UpdateTutorialLayoutAsync(bool scrollIntoView)
+    {
+        if (!isTutorialActive || tutorialSteps.Count == 0)
+        {
+            return;
+        }
+
+        var step = CurrentTutorialStep;
+        if (step.RequiresCreateDialog)
+        {
+            await OpenTutorialCreateDialogAsync();
+        }
+
+        if (scrollIntoView)
+        {
+            await JsRuntime.InvokeVoidAsync("playmoxTutorial.scrollIntoView", step.PrimaryElementId);
+        }
+
+        var rects = await FetchTutorialRectsAsync(step.ElementIds);
+        if (rects.Count == 0)
+        {
+            tutorialHighlightStyle = "display:none;";
+            tutorialTooltipStyle = "top: 20%; left: 50%; transform: translateX(-50%); width: min(520px, 92vw);";
+            StateHasChanged();
+            _ = RetryTutorialLayoutAsync(step, 10);
+            return;
+        }
+
+        var combined = CombineTutorialRects(rects);
+        if (step.MinRowCount > 0)
+        {
+            var rowCount = await JsRuntime.InvokeAsync<int>("playmoxTutorial.getGridRowCount", step.PrimaryElementId);
+            if (rowCount < step.MinRowCount)
+            {
+                tutorialHighlightStyle = "display:none;";
+                UpdateTutorialLayout(combined, step.Placement);
+                StateHasChanged();
+                _ = RetryTutorialLayoutAsync(step, 10);
+                return;
+            }
+        }
+
+        UpdateTutorialLayout(combined, step.Placement);
+        StateHasChanged();
+    }
+
+    private async Task RetryTutorialLayoutAsync(TutorialStep step, int attempts)
+    {
+        if (attempts <= 0 || !isTutorialActive)
+        {
+            return;
+        }
+
+        tutorialLayoutCts?.Cancel();
+        tutorialLayoutCts = new CancellationTokenSource();
+        var ct = tutorialLayoutCts.Token;
+        try
+        {
+            await Task.Delay(200, ct);
+            if (ct.IsCancellationRequested || !isTutorialActive)
+            {
+                return;
+            }
+
+            if (step.MinRowCount > 0)
+            {
+                var rowCount = await JsRuntime.InvokeAsync<int>("playmoxTutorial.getGridRowCount", step.PrimaryElementId);
+                if (rowCount < step.MinRowCount)
+                {
+                    _ = RetryTutorialLayoutAsync(step, attempts - 1);
+                    return;
+                }
+            }
+
+            await UpdateTutorialLayoutAsync(scrollIntoView: false);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
+    private async Task<List<TutorialRect>> FetchTutorialRectsAsync(IReadOnlyList<string> ids)
+    {
+        var rects = new List<TutorialRect>(ids.Count);
+        foreach (var id in ids)
+        {
+            var rect = await JsRuntime.InvokeAsync<TutorialRect?>("playmoxTutorial.getRect", id);
+            if (rect != null)
+            {
+                rects.Add(rect);
+            }
+        }
+        return rects;
+    }
+
+    private static TutorialRect CombineTutorialRects(IReadOnlyList<TutorialRect> rects)
+    {
+        var left = rects.Min(r => r.Left);
+        var top = rects.Min(r => r.Top);
+        var right = rects.Max(r => r.Left + r.Width);
+        var bottom = rects.Max(r => r.Top + r.Height);
+        var first = rects[0];
+        return new TutorialRect
+        {
+            Left = left,
+            Top = top,
+            Width = Math.Max(1, right - left),
+            Height = Math.Max(1, bottom - top),
+            ViewportWidth = first.ViewportWidth,
+            ViewportHeight = first.ViewportHeight
+        };
+    }
+
+    private void UpdateTutorialLayout(TutorialRect rect, TutorialPlacement placement)
+    {
+        const double padding = 8;
+        var highlightTop = Math.Max(rect.Top - padding, 8);
+        var highlightLeft = Math.Max(rect.Left - padding, 8);
+        var highlightWidth = Math.Max(rect.Width + padding * 2, 16);
+        var highlightHeight = Math.Max(rect.Height + padding * 2, 16);
+
+        if (highlightLeft + highlightWidth > rect.ViewportWidth - 8)
+        {
+            highlightWidth = rect.ViewportWidth - highlightLeft - 8;
+        }
+
+        if (highlightTop + highlightHeight > rect.ViewportHeight - 8)
+        {
+            highlightHeight = rect.ViewportHeight - highlightTop - 8;
+        }
+
+        tutorialHighlightStyle = $"top:{highlightTop:0}px; left:{highlightLeft:0}px; width:{highlightWidth:0}px; height:{highlightHeight:0}px;";
+
+        var tooltipWidth = Math.Min(420, rect.ViewportWidth - 24);
+        const double tooltipHeight = 220;
+
+        double top;
+        double left;
+        var above = rect.Top - 12;
+        var below = rect.ViewportHeight - (rect.Top + rect.Height) - 12;
+        var leftSpace = rect.Left - 12;
+        var rightSpace = rect.ViewportWidth - (rect.Left + rect.Width) - 12;
+
+        var effectivePlacement = placement == TutorialPlacement.Auto
+            ? (below >= tooltipHeight ? TutorialPlacement.Bottom
+                : above >= tooltipHeight ? TutorialPlacement.Top
+                : rightSpace >= tooltipWidth ? TutorialPlacement.Right
+                : TutorialPlacement.Left)
+            : placement;
+
+        switch (effectivePlacement)
+        {
+            case TutorialPlacement.Top:
+                top = rect.Top - tooltipHeight - 12;
+                left = rect.Left + rect.Width / 2 - tooltipWidth / 2;
+                break;
+            case TutorialPlacement.Left:
+                top = rect.Top + rect.Height / 2 - tooltipHeight / 2;
+                left = rect.Left - tooltipWidth - 12;
+                break;
+            case TutorialPlacement.Right:
+                top = rect.Top + rect.Height / 2 - tooltipHeight / 2;
+                left = rect.Left + rect.Width + 12;
+                break;
+            default:
+                top = rect.Top + rect.Height + 12;
+                left = rect.Left + rect.Width / 2 - tooltipWidth / 2;
+                break;
+        }
+
+        left = Math.Clamp(left, 12, rect.ViewportWidth - tooltipWidth - 12);
+        top = Math.Clamp(top, 12, rect.ViewportHeight - tooltipHeight - 12);
+
+        tutorialTooltipStyle = $"top:{top:0}px; left:{left:0}px; width:{tooltipWidth:0}px;";
+    }
+
+    private async Task NextTutorialStep()
+    {
+        if (!isTutorialActive)
+        {
+            return;
+        }
+
+        if (tutorialStepIndex >= tutorialSteps.Count - 1)
+        {
+            await EndTutorial();
+            return;
+        }
+
+        tutorialStepIndex++;
+        await ApplyTutorialStepAsync();
+    }
+
+    private async Task PreviousTutorialStep()
+    {
+        if (!isTutorialActive || tutorialStepIndex <= 0)
+        {
+            return;
+        }
+
+        tutorialStepIndex--;
+        await ApplyTutorialStepAsync();
+    }
+
+    private async Task EndTutorial()
+    {
+        if (!isTutorialActive)
+        {
+            return;
+        }
+
+        isTutorialActive = false;
+        tutorialLayoutCts?.Cancel();
+        tutorialHighlightStyle = "display:none;";
+        tutorialTooltipStyle = string.Empty;
+        CloseTutorialCreateDialogInternal();
+        await JsRuntime.InvokeVoidAsync("playmoxTutorial.stop");
+        tutorialDotNetRef?.Dispose();
+        tutorialDotNetRef = null;
+        StateHasChanged();
+    }
+
+    private async Task OpenTutorialCreateDialogAsync()
+    {
+        if (tutorialCreateDialog != null)
+        {
+            return;
+        }
+
+        var minecraft = gameDefinitions.FirstOrDefault(x =>
+            !string.IsNullOrWhiteSpace(x.DisplayName) &&
+            x.DisplayName.Contains("Minecraft", StringComparison.OrdinalIgnoreCase));
+
+        var parameters = new DialogParameters
+        {
+            ["GameDefinitions"] = gameDefinitions,
+            ["TutorialGameDefinitionId"] = minecraft?.Id
+        };
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Medium, FullWidth = true };
+        tutorialCreateDialog = DialogService.Show<CreateInstanceDialog>(L.T(Tr.Instances.NewVmDialogTitle), parameters, options);
+        await Task.Delay(50);
+    }
+
+    private void CloseTutorialCreateDialogInternal()
+    {
+        if (tutorialCreateDialog == null)
+        {
+            return;
+        }
+
+        tutorialCreateDialog.Close();
+        tutorialCreateDialog = null;
+    }
+
+    private void EnsureTutorialData()
+    {
+        if (tutorialQuota != null && tutorialInstances.Count > 0)
+        {
+            return;
+        }
+
+        tutorialQuota = new UserQuotaDto
+        {
+            CpuCoresLimit = 12,
+            MemoryMbLimit = 32768,
+            MaxInstancesLimit = 5,
+            DiskGbLimit = 200,
+            MaxPublicPortsLimit = 6,
+            AllowSshPublicPort = true
+        };
+
+        tutorialInstances =
+        [
+            new InstanceListItem
+            {
+                Id = 9001,
+                VmId = 101,
+                InstanceKind = "VM",
+                CpuCores = 2,
+                MemoryMb = 4096,
+                DiskGb = 20,
+                Status = "Running",
+                GameDefinitionId = 1,
+                GameDisplayName = "Minecraft Java",
+                VmDisplayName = "MC Survival",
+                AccessUsername = "gameserver",
+                AccessPassword = "demo1234",
+                PublicHost = "playmox.local",
+                SshPublicPort = 22001,
+                GamePublicPortStart = 25565,
+                GamePublicPortCount = 1,
+                GamePublicPortProtocol = "tcp"
+            },
+            new InstanceListItem
+            {
+                Id = 9002,
+                VmId = 102,
+                InstanceKind = "VM",
+                CpuCores = 4,
+                MemoryMb = 8192,
+                DiskGb = 30,
+                Status = "Running",
+                GameDefinitionId = 2,
+                GameDisplayName = "Terraria",
+                VmDisplayName = "Terraria Co-op",
+                AccessUsername = "gameserver",
+                AccessPassword = "demo1234",
+                PublicHost = "playmox.local",
+                SshPublicPort = 22002,
+                GamePublicPortStart = 7777,
+                GamePublicPortCount = 1,
+                GamePublicPortProtocol = "udp"
+            },
+            new InstanceListItem
+            {
+                Id = 9003,
+                VmId = 103,
+                InstanceKind = "VM",
+                CpuCores = 2,
+                MemoryMb = 4096,
+                DiskGb = 25,
+                Status = "Stopped",
+                GameDefinitionId = 3,
+                GameDisplayName = "Factorio",
+                VmDisplayName = "Factorio #1",
+                AccessUsername = "gameserver",
+                AccessPassword = "demo1234",
+                PublicHost = "playmox.local",
+                SshPublicPort = 22003,
+                GamePublicPortStart = 34197,
+                GamePublicPortCount = 1,
+                GamePublicPortProtocol = "udp"
+            }
+        ];
+
+        tutorialPrimaryInstanceId = tutorialInstances.FirstOrDefault()?.Id;
+        RecalculateTutorialUsage();
+    }
+
+    private void InitializeTutorialSteps(bool forceRebuild = false)
+    {
+        if (tutorialSteps.Count > 0 && !forceRebuild)
+        {
+            return;
+        }
+
+        tutorialSteps =
+        [
+            new TutorialStep(
+                ["tutorial-vm-grid"],
+                L.T(Tr.Nav.MyServers),
+                L.T(Tr.Tutorial.WelcomeBody),
+                TutorialPlacement.Bottom,
+                MinRowCount: 3),
+            new TutorialStep(
+                ["tutorial-quota-cpu", "tutorial-quota-ram", "tutorial-quota-instances"],
+                L.T(Tr.Tutorial.LimitsTitle),
+                L.T(Tr.Tutorial.LimitsBody),
+                TutorialPlacement.Bottom),
+            new TutorialStep(
+                ["tutorial-quota-disk"],
+                L.T(Tr.Tutorial.DiskTitle),
+                L.T(Tr.Tutorial.DiskBody),
+                TutorialPlacement.Bottom),
+            new TutorialStep(
+                ["tutorial-quota-ports"],
+                L.T(Tr.Tutorial.PublicPortsTitle),
+                L.T(Tr.Tutorial.PublicPortsBody),
+                TutorialPlacement.Bottom),
+            new TutorialStep(
+                ["tutorial-vm-grid"],
+                L.T(Tr.Instances.MachineList),
+                L.T(Tr.Tutorial.MachineRowBody),
+                TutorialPlacement.Top,
+                MinRowCount: 3),
+            new TutorialStep(
+                [TutorialAccessId],
+                L.T(Tr.Instances.AccessDetails),
+                L.T(Tr.Tutorial.AccessDetailsBody),
+                TutorialPlacement.Right),
+            new TutorialStep(
+                [TutorialActionsId],
+                L.T(Tr.Tutorial.QuickActionsTitle),
+                L.T(Tr.Tutorial.QuickActionsBody),
+                TutorialPlacement.Left),
+            new TutorialStep(
+                [TutorialActionsMenuId],
+                L.T(Tr.Tutorial.MoreActionsTitle),
+                L.T(Tr.Tutorial.MoreActionsBody),
+                TutorialPlacement.Left),
+            new TutorialStep(
+                ["tutorial-create-btn"],
+                L.T(Tr.Tutorial.CreateVmTitle),
+                L.T(Tr.Tutorial.CreateVmBody),
+                TutorialPlacement.Bottom),
+            new TutorialStep(
+                ["tutorial-create-header"],
+                L.T(Tr.Tutorial.GameSelectionTitle),
+                L.T(Tr.Tutorial.GameSelectionBody),
+                TutorialPlacement.Right,
+                RequiresCreateDialog: true),
+            new TutorialStep(
+                ["tutorial-create-cpu", "tutorial-create-ram", "tutorial-create-disk"],
+                L.T(Tr.Tutorial.VmResourcesTitle),
+                L.T(Tr.Tutorial.VmResourcesBody),
+                TutorialPlacement.Right,
+                RequiresCreateDialog: true),
+            new TutorialStep(
+                ["tutorial-create-config"],
+                L.T(Tr.Tutorial.GameConfigTitle),
+                L.T(Tr.Tutorial.GameConfigBody),
+                TutorialPlacement.Top,
+                RequiresCreateDialog: true),
+            new TutorialStep(
+                ["tutorial-create-custom"],
+                L.T(Tr.Tutorial.AdditionalParamsTitle),
+                L.T(Tr.Tutorial.AdditionalParamsBody),
+                TutorialPlacement.Top,
+                RequiresCreateDialog: true),
+            new TutorialStep(
+                ["tutorial-create-submit"],
+                L.T(Tr.Tutorial.LaunchTitle),
+                L.T(Tr.Tutorial.LaunchBody),
+                TutorialPlacement.Top,
+                RequiresCreateDialog: true)
+        ];
+    }
+
+    private IReadOnlyDictionary<string, object> GetTutorialAttributes(InstanceListItem item, string id)
+    {
+        if (!isTutorialActive || tutorialPrimaryInstanceId != item.Id)
+        {
+            return EmptyAttributes;
+        }
+
+        return new Dictionary<string, object> { ["id"] = id };
+    }
+
+    private void RecalculateTutorialUsage()
+    {
+        var active = tutorialInstances.Where(x => !string.Equals(x.Status, "Deleted", StringComparison.OrdinalIgnoreCase)).ToList();
+        var computeStatuses = new[] { "Creating", "Running", "Updating" };
+        var computeInstances = active.Where(x => computeStatuses.Contains(x.Status, StringComparer.OrdinalIgnoreCase)).ToList();
+
+        tutorialActiveInstancesCount = computeInstances.Count;
+        tutorialUsedCpu = computeInstances.Sum(x => x.CpuCores);
+        tutorialUsedMemoryMb = computeInstances.Sum(x => x.MemoryMb);
+        tutorialUsedDiskGb = active.Sum(x => x.DiskGb ?? 0);
+        tutorialUsedPublicPorts = computeInstances.Sum(x => x.GamePublicPortCount ?? 0);
+    }
+
+    private async Task RefreshInstancesOnlyAsync()
+    {
+        var instancesTask = ApiClient.GetJsonAsync<List<InstanceListItem>>("api/instances");
+        Task<AdminProxmoxDashboardDto?>? adminTask = null;
+        if (AuthStateService.IsAdmin())
+        {
+            adminTask = ApiClient.GetJsonAsync<AdminProxmoxDashboardDto>("api/admin/proxmox-dashboard");
+        }
+
+        if (adminTask != null)
+        {
+            await Task.WhenAll(instancesTask, adminTask);
+            adminDashboard = adminTask.Result;
+        }
+        else
+        {
+            await instancesTask;
+        }
+
+        instances = instancesTask.Result ?? [];
+        var currentIds = instances.Select(x => x.Id).ToHashSet();
+        _openActionsMenuInstanceIds.RemoveWhere(id => !currentIds.Contains(id));
+        RecalculateUsage();
+        StateHasChanged();
+    }
+
+    private async Task RefreshRuntimeInfoAsync(long instanceId)
+    {
+        refreshingRuntimeIds.Add(instanceId);
+        StateHasChanged();
+        try
+        {
+            var info = await ApiClient.GetJsonAsync<VmGameRuntimeInfo>($"api/instances/{instanceId}/game-runtime");
+            if (info != null)
+            {
+                runtimeInfos[instanceId] = info;
+            }
+        }
+        finally
+        {
+            refreshingRuntimeIds.Remove(instanceId);
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenCreateVmDialog()
+    {
+        var parameters = new DialogParameters { ["GameDefinitions"] = gameDefinitions };
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = DialogService.Show<CreateInstanceDialog>(L.T(Tr.Instances.NewVmDialogTitle), parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task OpenGameConfigDialog(InstanceListItem instance)
+    {
+        var parameters = new DialogParameters 
+        { 
+            ["Instance"] = instance,
+            ["GameDefinition"] = gameDefinitions.FirstOrDefault(x => x.Id == instance.GameDefinitionId)
+        };
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Medium, FullWidth = true };
+        var dialog = DialogService.Show<GameConfigDialog>(L.T(Tr.Tutorial.GameConfigTitle), parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled && result.Data is string configJson)
+        {
+            isSubmitting = true;
+            var payload = new { idempotencyKey = Guid.NewGuid().ToString("N"), configurationJson = configJson };
+            var (success, _) = await ApiClient.PutJsonAsync<object, JobAcceptedResponse>($"api/instances/{instance.Id}/game/config", payload);
+            isSubmitting = false;
+            if (success)
+            {
+                Snackbar.Add(L.T(Tr.Instances.ConfigSavedRestarting), Severity.Success);
+                await RefreshInstancesOnlyAsync();
+            }
+        }
+    }
+
+    private async Task EnqueueLifecycleAsync(long instanceId, string action)
+    {
+        isSubmitting = true;
+        var payload = new { idempotencyKey = Guid.NewGuid().ToString("N") };
+        var success = await ApiClient.PostJsonAsync($"api/instances/{instanceId}/{action}", payload);
+        isSubmitting = false;
+        if (success)
+        {
+            Snackbar.Add(L.T(Tr.Instances.OperationQueued, action.ToUpper()), Severity.Info);
+            await RefreshInstancesOnlyAsync();
+        }
+    }
+
+    private async Task ForceStopInstanceAsync(InstanceListItem instance)
+    {
+        if (instance.HasPendingJob)
+        {
+            var confirmed = await DialogService.ShowMessageBox(
+                L.T(Tr.Instances.ForceStopDialogTitle),
+                L.T(Tr.Instances.ForceStopConfirmMessage),
+                yesText: L.T(Tr.Instances.ActionForceStop),
+                cancelText: L.T(Tr.Common.Cancel),
+                options: new DialogOptions { MaxWidth = MaxWidth.Small });
+
+            if (confirmed != true)
+            {
+                return;
+            }
+        }
+
+        isSubmitting = true;
+        try
+        {
+            var (success, _) = await ApiClient.PostAsync<InstanceListItem>($"api/instances/{instance.Id}/force-stop", new { });
+            if (success)
+            {
+                Snackbar.Add(L.T(Tr.Instances.VmForciblyStopped), Severity.Success);
+                await RefreshInstancesOnlyAsync();
+            }
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task DeleteVmAsync(long instanceId)
+    {
+        bool? confirmed = await DialogService.ShowMessageBox(
+            L.T(Tr.Instances.MenuDeleteVm), 
+            L.T(Tr.Instances.DeleteVmConfirmMessage), 
+            yesText: L.T(Tr.Common.Delete),
+            cancelText: L.T(Tr.Common.Cancel),
+            options: new DialogOptions { MaxWidth = MaxWidth.Small });
+            
+        if (confirmed == true)
+        {
+            isSubmitting = true;
+            var success = await ApiClient.DeleteAsync($"api/instances/{instanceId}");
+            isSubmitting = false;
+            if (success)
+            {
+                Snackbar.Add(L.T(Tr.Instances.VmDeletionQueued), Severity.Success);
+                await LoadDataAsync();
+            }
+        }
+    }
+
+    private async Task OpenResetPasswordDialog(long instanceId)
+    {
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Small };
+        var dialog = DialogService.Show<ResetPasswordDialog>(L.T(Tr.ResetPassword.DialogTitle), options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled && result.Data is string newPass)
+        {
+            isSubmitting = true;
+            var payload = new ResetPasswordRequest { IdempotencyKey = Guid.NewGuid().ToString("N"), Password = newPass };
+            var success = await ApiClient.PostJsonAsync($"api/instances/{instanceId}/reset-password", payload);
+            isSubmitting = false;
+            if (success)
+            {
+                Snackbar.Add(L.T(Tr.Instances.PasswordResetQueued), Severity.Success);
+                await RefreshInstancesOnlyAsync();
+            }
+        }
+    }
+
+    private void BeginEditResources(InstanceListItem instance)
+    {
+        _editingVm = instance;
+        editCpuCores = instance.CpuCores;
+        editMemoryMb = instance.MemoryMb;
+        editDiskGb = instance.DiskGb;
+        editDisplayName = instance.VmDisplayName;
+        _editResourcesOpen = true;
+        StateHasChanged();
+    }
+
+    private async Task SaveResourcesAsync(long instanceId)
+    {
+        isSubmitting = true;
+        var request = new UpdateVmResourcesRequest
+        {
+            CpuCores = editCpuCores,
+            MemoryMb = editMemoryMb,
+            DiskGb = editDiskGb,
+            DisplayName = editDisplayName,
+            IdempotencyKey = Guid.NewGuid().ToString("N")
+        };
+        var (success, _) = await ApiClient.PutJsonAsync<UpdateVmResourcesRequest, JobAcceptedResponse>($"api/instances/{instanceId}/resources", request);
+        isSubmitting = false;
+        
+        if (success)
+        {
+            _editResourcesOpen = false;
+            Snackbar.Add(L.T(Tr.Instances.ResourcesUpdated), Severity.Success);
+            await RefreshInstancesOnlyAsync();
+        }
+    }
+
+    private async Task LoadJobsForInstanceAsync(long instanceId)
+    {
+        var jobs = await ApiClient.GetJsonAsync<List<ProvisioningJobStatusItem>>($"api/jobs?instanceId={instanceId}") ?? [];
+        var parameters = new DialogParameters { ["Jobs"] = jobs, ["InstanceId"] = instanceId };
+        DialogService.Show<InstanceJobsDialog>(L.T(Tr.Instances.JobHistoryDialogTitle), parameters);
+    }
+
+    private async Task OpenSshPreviewAsync(long instanceId, bool enableSshTerminal)
+    {
+        CloseSshPreview();
+        sshTerminalEnabled = enableSshTerminal;
+        sshPreviewInstanceId = instanceId;
+        _sshPreviewOpen = true;
+        StateHasChanged();
+        
+        apiCommandStreamCts = new CancellationTokenSource();
+        _ = PollApiCommandStreamAsync(instanceId, apiCommandStreamCts.Token);
+        
+        if (sshTerminalEnabled)
+        {
+            sshPreviewOutput = L.T(Tr.Instances.SshConnecting);
+            sshPreviewMessage = L.T(Tr.Instances.SshConnecting);
+            sshPreviewSeverity = Severity.Info;
+            var token = await AuthStateService.GetValidAccessTokenAsync(TimeSpan.FromMinutes(1));
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                sshPreviewMessage = L.T(Tr.Instances.SshSessionFailed);
+                sshPreviewSeverity = Severity.Error;
+                StateHasChanged();
+                return;
+            }
+
+            sshDotNetRef = DotNetObjectReference.Create(this);
+            var path = $"/api/ws/instances/{instanceId}/ssh?access_token={Uri.EscapeDataString(token!)}";
+            await JsRuntime.InvokeVoidAsync("playmoxSsh.connect", path, sshDotNetRef);
+        }
+    }
+
+    private void CloseSshPreview()
+    {
+        apiCommandStreamCts?.Cancel();
+        _ = JsRuntime.InvokeVoidAsync("playmoxSsh.close");
+        sshDotNetRef?.Dispose();
+        _sshPreviewOpen = false;
+        StateHasChanged();
+    }
+
+    private async Task PollApiCommandStreamAsync(long instanceId, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            var snapshot = await ApiClient.GetJsonAsync<LiveCommandStreamItem>($"api/instances/{instanceId}/live-command-stream");
+            if (snapshot != null)
+            {
+                apiCommandStreamMessage = snapshot.Active
+                    ? L.T(Tr.Instances.StreamActive, snapshot.CommandSummary)
+                    : L.T(Tr.Instances.StreamNoActiveOperation);
+                var formattedItems = snapshot.RecentItems.Select(i =>
+                {
+                    var sb = new System.Text.StringBuilder();
+                    var timeStr = i.StartedAtUtc?.ToLocalTime().ToString("HH:mm:ss") ?? "---";
+                    sb.AppendLine($"[{timeStr}] --- START: {i.CommandSummary} (PID: {i.Pid}) ---");
+                    if (!string.IsNullOrEmpty(i.Output)) sb.AppendLine(i.Output);
+                    if (!i.Active)
+                    {
+                        var endTimeStr = i.CompletedAtUtc?.ToLocalTime().ToString("HH:mm:ss") ?? "---";
+                        sb.AppendLine($"[{endTimeStr}] --- END: {i.CommandSummary} (Exit Code: {i.ExitCode}) ---");
+                    }
+                    return sb.ToString();
+                });
+                apiCommandStreamOutput = string.Join("\n", formattedItems).StripAnsiEscapeCodes();
+                StateHasChanged();
+                if (apiStreamAutoScroll) await JsRuntime.InvokeVoidAsync("playmoxSsh.scrollToBottom", "api-command-console");
+            }
+            await Task.Delay(2000, ct);
+        }
+    }
+
+    [JSInvokable] public async Task OnSshWsMessage(string chunk) 
+    { 
+        var stripped = chunk.StripAnsiEscapeCodes(); 
+        foreach (var c in stripped)
+        {
+            if (c == '\b' || c == '\x7f')
+            {
+                if (sshPreviewOutput.Length > 0) sshPreviewOutput = sshPreviewOutput[..^1];
+            }
+            else
+            {
+                sshPreviewOutput += c;
+            }
+        }
+        StateHasChanged(); 
+        if (sshAutoScroll) await JsRuntime.InvokeVoidAsync("playmoxSsh.scrollToBottom", "ssh-terminal-console");
+    }
+    
+    [JSInvokable]
+    public Task OnSshWsClosed(string reason)
+    {
+        sshPreviewMessage = L.T(Tr.Instances.SshDisconnectedPrefix) + reason;
+        sshPreviewSeverity = Severity.Warning;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnSshWsError(string error)
+    {
+        sshPreviewMessage = L.T(Tr.Instances.SshErrorPrefix) + error;
+        sshPreviewSeverity = Severity.Error;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnSshWsOpen()
+    {
+        sshPreviewMessage = L.T(Tr.Instances.SshConnected);
+        sshPreviewSeverity = Severity.Success;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+    
+    private async Task OnTerminalKeyDown(KeyboardEventArgs e)
+    {
+        string? payload = null;
+
+        if (e.CtrlKey)
+        {
+            payload = e.Key.ToLowerInvariant() switch
+            {
+                "c" => "\x03",
+                "d" => "\x04",
+                "l" => "\x0c",
+                "z" => "\x1a",
+                _ => null
+            };
+        }
+        else
+        {
+            payload = e.Key switch
+            {
+                "Enter" => "\r",
+                "Backspace" => "\u007f",
+                "Tab" => "\t",
+                "Escape" => "\x1b",
+                "ArrowUp" => "\x1b[A",
+                "ArrowDown" => "\x1b[B",
+                "ArrowRight" => "\x1b[C",
+                "ArrowLeft" => "\x1b[D",
+                _ => e.Key.Length == 1 ? e.Key : null
+            };
+        }
+
+        if (payload != null) 
+        {
+            var sent = await JsRuntime.InvokeAsync<bool>("playmoxSsh.send", payload);
+            if (!sent)
+            {
+                sshPreviewMessage = L.T(Tr.Instances.SshTerminalDisconnected);
+                sshPreviewSeverity = Severity.Error;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task DownloadGameBackupAsync(long instanceId)
+    {
+        loadingInstanceIds.Add(instanceId);
+        StateHasChanged();
+        try
+        {
+            var (success, file) = await ApiClient.DownloadFileAsync($"api/instances/{instanceId}/game/backup");
+            if (success && file != null)
+            {
+                await JsRuntime.InvokeVoidAsync("playmoxFiles.downloadStream", file.FileName, file.ContentType, new DotNetStreamReference(new MemoryStream(file.Content)));
+                Snackbar.Add(L.T(Tr.Instances.BackupDownloadStarted), Severity.Success);
+            }
+        }
+        finally
+        {
+            loadingInstanceIds.Remove(instanceId);
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenRestoreFilePickerAsync(long instanceId) => await JsRuntime.InvokeVoidAsync("playmoxUi.clickById", $"restore-file-{instanceId}");
+
+    private async Task RestoreGameBackupAsync(long instanceId, InputFileChangeEventArgs args)
+    {
+        loadingInstanceIds.Add(instanceId);
+        StateHasChanged();
+        try
+        {
+            var file = args.File;
+            await using var stream = file.OpenReadStream(500L * 1024 * 1024);
+            using var content = new MultipartFormDataContent { { new StreamContent(stream), "archive", file.Name } };
+            var success = await ApiClient.PostMultipartAsync($"api/instances/{instanceId}/game/restore", content);
+            if (success) Snackbar.Add(L.T(Tr.Instances.BackupRestoredRestarting), Severity.Success);
+        }
+        finally
+        {
+            loadingInstanceIds.Remove(instanceId);
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReinstallGameAsync(long instanceId)
+    {
+        if (await DialogService.ShowMessageBox(
+            L.T(Tr.Instances.ReinstallDialogTitle),
+            L.T(Tr.Instances.ReinstallConfirmMessage),
+            yesText: L.T(Tr.Common.Yes),
+            cancelText: L.T(Tr.Common.No),
+            options: new DialogOptions { MaxWidth = MaxWidth.Small }) == true)
+        {
+            var success = await ApiClient.PostJsonAsync($"api/instances/{instanceId}/game/reinstall", new { idempotencyKey = Guid.NewGuid() });
+            if (success) Snackbar.Add(L.T(Tr.Instances.ReinstallQueued), Severity.Info);
+        }
+    }
+
+    private Color GetQuotaColor(int used, int limit)
+    {
+        double ratio = limit > 0 ? (double)used / limit : 0;
+        if (ratio > 0.9) return Color.Error;
+        if (ratio > 0.7) return Color.Warning;
+        return Color.Primary;
+    }
+
+    private string GetStatusIcon(string? status) => (status ?? string.Empty).ToLowerInvariant() switch
+    {
+        "running" => Icons.Material.Filled.PlayCircle,
+        "stopped" => Icons.Material.Filled.StopCircle,
+        "deleted" => Icons.Material.Filled.Delete,
+        _ => Icons.Material.Filled.Help
+    };
+
+    private Color GetStatusColor(string? status) => (status ?? string.Empty).ToLowerInvariant() switch
+    {
+        "running" => Color.Success,
+        "stopped" => Color.Default,
+        "error" => Color.Error,
+        "creating" => Color.Info,
+        _ => Color.Default
+    };
+
+    private void RecalculateUsage()
+    {
+        var active = instances.Where(x => !string.Equals(x.Status, "Deleted", StringComparison.OrdinalIgnoreCase)).ToList();
+        var computeStatuses = new[] { "Creating", "Running", "Updating" };
+        var computeInstances = active.Where(x => computeStatuses.Contains(x.Status, StringComparer.OrdinalIgnoreCase)).ToList();
+
+        activeInstancesCount = computeInstances.Count;
+        usedCpu = computeInstances.Sum(x => x.CpuCores);
+        usedMemoryMb = computeInstances.Sum(x => x.MemoryMb);
+        usedDiskGb = active.Sum(x => x.DiskGb ?? 0);
+        usedPublicPorts = computeInstances.Sum(x => x.GamePublicPortCount ?? 0);
+    }
+
+    private static string FormatBytes(long? bytes)
+    {
+        if (!bytes.HasValue || bytes.Value <= 0) return "0 B";
+        string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
+        int suffixIndex = 0;
+        double value = bytes.Value;
+        while (value >= 1024 && suffixIndex < suffixes.Length - 1)
+        {
+            value /= 1024;
+            suffixIndex++;
+        }
+        return $"{value:0.#} {suffixes[suffixIndex]}";
+    }
+
+    private sealed record TutorialStep(string[] ElementIds, string Title, string Body, TutorialPlacement Placement, bool RequiresCreateDialog = false, int MinRowCount = 0)
+    {
+        public string PrimaryElementId => ElementIds.Length > 0 ? ElementIds[0] : string.Empty;
+    }
+
+    private enum TutorialPlacement
+    {
+        Auto,
+        Top,
+        Bottom,
+        Left,
+        Right
+    }
+
+    private sealed class TutorialRect
+    {
+        public double Top { get; set; }
+        public double Left { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public double ViewportWidth { get; set; }
+        public double ViewportHeight { get; set; }
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= OnLanguageChanged;
+        autoRefreshCts?.Cancel();
+        autoRefreshCts?.Dispose();
+        apiCommandStreamCts?.Cancel();
+        apiCommandStreamCts?.Dispose();
+        tutorialLayoutCts?.Cancel();
+        tutorialLayoutCts?.Dispose();
+        sshDotNetRef?.Dispose();
+        tutorialDotNetRef?.Dispose();
+        CloseTutorialCreateDialogInternal();
+        _ = JsRuntime.InvokeVoidAsync("playmoxTutorial.stop");
+        TutorialService.InstancesTutorialRequested -= OnInstancesTutorialRequested;
+    }
+}

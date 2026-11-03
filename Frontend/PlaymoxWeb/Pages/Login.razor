@@ -1,0 +1,92 @@
+@page "/login"
+@implements IDisposable
+@using MudBlazor
+@using PlaymoxWeb.Models
+@inject NavigationManager Navigation
+@inject AuthStateService AuthStateService
+@inject ISnackbar Snackbar
+
+<PageTitle>@L.T(Tr.Login.PageTitle)</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <MudPaper Elevation="4" Class="pa-8">
+        <MudText Typo="Typo.h4" Align="Align.Center" GutterBottom="true">@L.T(Tr.Nav.LogIn)</MudText>
+        <MudText Typo="Typo.body1" Align="Align.Center" Class="mb-8 mud-text-secondary">@L.T(Tr.Login.WelcomeSubtitle)</MudText>
+
+        <EditForm Model="@model" OnValidSubmit="SubmitAsync">
+            <DataAnnotationsValidator />
+            
+            <MudTextField Label="@L.T(Tr.Login.UsernameLabel)" 
+                          @bind-Value="model.Login" 
+                          For="@(() => model.Login)" 
+                          Variant="Variant.Outlined" 
+                          Class="mb-4"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Person" />
+
+            <MudTextField Label="@L.T(Tr.Login.PasswordLabel)" 
+                          @bind-Value="model.Password" 
+                          For="@(() => model.Password)" 
+                          Variant="Variant.Outlined" 
+                          InputType="InputType.Password" 
+                          Class="mb-6"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Lock" />
+
+            <MudButton ButtonType="ButtonType.Submit" 
+                       Variant="Variant.Filled" 
+                       Color="Color.Primary" 
+                       FullWidth="true" 
+                       Size="Size.Large"
+                       Disabled="@isSubmitting">
+                @if (isSubmitting)
+                {
+                    <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                    <MudText Class="ms-2">@L.T(Tr.Login.LoggingIn)</MudText>
+                }
+                else
+                {
+                    <MudText>@L.T(Tr.Nav.LogIn)</MudText>
+                }
+            </MudButton>
+        </EditForm>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private readonly LoginRequest model = new();
+    private bool isSubmitting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.OnLanguageChanged += OnLanguageChanged;
+        await AuthStateService.InitializeAsync();
+        if (AuthStateService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task SubmitAsync()
+    {
+        isSubmitting = true;
+
+        var result = await AuthStateService.LoginAsync(model);
+        isSubmitting = false;
+
+        if (!result.Success)
+        {
+            Snackbar.Add(result.Error ?? L.T(Tr.Login.LoginFailed), Severity.Error, config => { config.RequireInteraction = true; });
+            return;
+        }
+
+        Navigation.NavigateTo("/");
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= OnLanguageChanged;
+    }
+}
