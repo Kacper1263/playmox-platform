@@ -9,6 +9,8 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+![Instances](docs/screenshots/instances.png)
+
 ---
 
 > [!NOTE]
